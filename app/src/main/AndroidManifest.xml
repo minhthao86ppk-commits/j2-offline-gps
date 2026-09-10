@@ -1,29 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Quyền truy cập định vị GPS phần cứng -->
+    <!-- Các quyền truy cập vị trí phần cứng -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <!-- Quyền chạy Service nền khi tắt màn hình máy -->
+    <!-- Quyền đọc/ghi bộ nhớ để tải file sqlite và xuất file GPX -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+    <!-- Quyền chạy dịch vụ ngầm ghi GPS khi tắt màn hình -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- Quyền lưu file lộ trình GPX vào bộ nhớ máy -->
-    <uses-permission 
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
-        android:maxSdkVersion="28" />
-
     <application
         android:allowBackup="true"
-        android:icon="@android:drawable/ic_menu_mylocation"
         android:label="J2 GPS Offline"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
+        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
-        <!-- Màn hình chính -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -31,11 +29,11 @@
             </intent-filter>
         </activity>
 
-        <!-- Dịch vụ ghi tọa độ ngầm -->
         <service
             android:name=".TrackingService"
             android:enabled="true"
             android:exported="false" />
 
     </application>
+
 </manifest>
