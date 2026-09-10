@@ -105,7 +105,7 @@ public class MainActivity extends AppCompatActivity {
 
         // Thiết lập đường vệt màu đỏ nổi bật
         trackLine = new Polyline(mapView);
-        trackLine.setColor(Color.RED);
+        trackLine.setColor(Color.parseColor("#003399")); // Màu xanh đậm nổi bật
         trackLine.setWidth(7.0f);
         mapView.getOverlays().add(trackLine);
 
