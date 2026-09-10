@@ -23,8 +23,8 @@ import androidx.core.content.ContextCompat;
 import org.osmdroid.config.Configuration;
 import org.osmdroid.tileprovider.modules.IArchiveFile;
 import org.osmdroid.tileprovider.modules.OfflineTileProvider;
-import org.osmdroid.tileprovider.modules.SimpleRegisterReceiver;
 import org.osmdroid.tileprovider.tilesource.FileBasedTileSource;
+import org.osmdroid.tileprovider.util.SimpleRegisterReceiver;
 import org.osmdroid.util.GeoPoint;
 import org.osmdroid.views.MapView;
 import org.osmdroid.views.overlay.Marker;
@@ -101,9 +101,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupMapView() {
         mapView.setMultiTouchControls(true);
-        mapView.setUseDataConnection(false); // Ngắt hoàn toàn mạng, chỉ dùng offline
+        mapView.setUseDataConnection(false); // Ngắt hoàn toàn kết nối mạng ngoài
 
-        // Đường vệt GPS màu đỏ nổi bật
+        // Thiết lập đường vệt màu đỏ nổi bật
         trackLine = new Polyline(mapView);
         trackLine.setColor(Color.RED);
         trackLine.setWidth(7.0f);
