@@ -57,8 +57,8 @@ public class MainActivity extends AppCompatActivity {
 
     // Định nghĩa 2 chế độ độc lập
     private static final int MODE_STANDBY = 0;
-    private static final int MODE_RECORDING = 1;     // Chế độ 1: Ghi vết di chuyển
-    private static final int MODE_FOLLOW_ROUTE = 2;  // Chế độ 2: Chỉ đi theo đường mẫu
+    private static final int MODE_RECORDING = 1;     // Chế độ 1: Ghi vết
+    private static final int MODE_FOLLOW_ROUTE = 2;  // Chế độ 2: Dẫn đường GPX
 
     private int currentMode = MODE_STANDBY;
 
@@ -70,12 +70,11 @@ public class MainActivity extends AppCompatActivity {
     private Button btnLoadFollowGpx, btnClearRoute;
 
     private Polyline trackLine;       // Vệt GPS di chuyển thực tế (Xanh dương)
-    private Polyline plannedGpxLine;  // Vệt lộ trình mẫu GPX nạp vào (Cam)
+    private Polyline plannedGpxLine;  // Vệt lộ trình mẫu GPX (Cam)
     private Marker currentMarker;     // Chấm tròn phong cách Google Maps
 
     private DatabaseHelper dbHelper;
 
-    // Bộ nhận tọa độ từ chip GPS
     private final BroadcastReceiver locationReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -83,16 +82,13 @@ public class MainActivity extends AppCompatActivity {
             double lng = intent.getDoubleExtra("lng", 0.0);
             GeoPoint currentPoint = new GeoPoint(lat, lng);
 
-            // Cập nhật chấm vị trí Google Maps
             currentMarker.setPosition(currentPoint);
             currentMarker.setVisible(true);
 
             if (currentMode == MODE_RECORDING) {
-                // CHẾ ĐỘ 1: VẼ THÊM ĐƯỜNG VẾT DI CHUYỂN
                 trackLine.addPoint(currentPoint);
                 tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm\nTọa độ: %.5f, %.5f", dbHelper.getPointCount(), lat, lng));
             } else if (currentMode == MODE_FOLLOW_ROUTE) {
-                // CHẾ ĐỘ 2: TUYỆT ĐỐI KHÔNG VẼ VẾT, CHỈ DỜI CHẤM XANH
                 tvQuickStatus.setText(String.format(Locale.US, "Dẫn đường: %.4f, %.4f", lat, lng));
             }
 
@@ -125,21 +121,20 @@ public class MainActivity extends AppCompatActivity {
 
         setupMapView();
         setupMenuEvents();
-
         checkPermissionsAndInit();
     }
 
     private void setupMapView() {
         mapView.setMultiTouchControls(true);
-        mapView.setUseDataConnection(false); // Ngắt hoàn toàn dữ liệu mạng
+        mapView.setUseDataConnection(false);
 
-        // Lộ trình mẫu GPX: Màu Cam đậm, nét to 8px
+        // Lộ trình mẫu GPX (Cam đậm nét 8px)
         plannedGpxLine = new Polyline(mapView);
         plannedGpxLine.setColor(Color.parseColor("#FF6600"));
         plannedGpxLine.setWidth(8.0f);
         mapView.getOverlays().add(plannedGpxLine);
 
-        // Vệt ghi thực tế: Màu Xanh dương đậm nét 7px
+        // Vệt ghi thực tế (Xanh dương đậm nét 7px)
         trackLine = new Polyline(mapView);
         trackLine.setColor(Color.parseColor("#003399"));
         trackLine.setWidth(7.0f);
@@ -157,22 +152,18 @@ public class MainActivity extends AppCompatActivity {
         mapView.getController().setCenter(centerPoint);
     }
 
-    // Vẽ icon chấm xanh tròn chuẩn phong cách Google Maps
     private BitmapDrawable createGoogleMapsLocationDot() {
         int size = 64;
         Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        // Quầng hào quang mờ
         paint.setColor(Color.parseColor("#332196F3"));
         canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint);
 
-        // Vành trắng bảo vệ
         paint.setColor(Color.WHITE);
         canvas.drawCircle(size / 2f, size / 2f, 18f, paint);
 
-        // Lõi chấm xanh dương Google Maps
         paint.setColor(Color.parseColor("#007AFF"));
         canvas.drawCircle(size / 2f, size / 2f, 13f, paint);
 
@@ -180,11 +171,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupMenuEvents() {
-        // Nút bấm thò/thụt menu
         btnOpenMenu.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
         btnCloseMenu.setOnClickListener(v -> drawerLayout.closeDrawer(GravityCompat.START));
 
-        // CHẾ ĐỘ 1: GHI LỘ TRÌNH
         btnStartRecord.setOnClickListener(v -> {
             drawerLayout.closeDrawer(GravityCompat.START);
             startModeRecord();
@@ -195,7 +184,6 @@ public class MainActivity extends AppCompatActivity {
             stopModeRecordAndExport();
         });
 
-        // CHẾ ĐỘ 2: ĐI THEO LỘ TRÌNH GPX (KHÔNG GHI VẾT)
         btnLoadFollowGpx.setOnClickListener(v -> pickGpxForNavigation());
 
         btnClearRoute.setOnClickListener(v -> {
@@ -208,7 +196,6 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // --- XỬ LÝ CHẾ ĐỘ 1: GHI VẾT ---
     private void startModeRecord() {
         currentMode = MODE_RECORDING;
         tvQuickStatus.setText("Chế độ: ĐANG GHI");
@@ -237,7 +224,6 @@ public class MainActivity extends AppCompatActivity {
         exportGpxFile();
     }
 
-    // --- XỬ LÝ CHẾ ĐỘ 2: DẪN ĐƯỜNG GPX KHÔNG GHI VẾT ---
     private void pickGpxForNavigation() {
         File downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
         if (!downloadDir.exists()) {
@@ -288,20 +274,14 @@ public class MainActivity extends AppCompatActivity {
             }
 
             if (!points.isEmpty()) {
-                // Tắt vệt ghi cũ nếu có để tránh đè rối mắt
                 trackLine.getActualPoints().clear();
-                
-                // Nạp tuyến đường cam
                 plannedGpxLine.setPoints(points);
                 mapView.getController().animateTo(points.get(0));
                 mapView.getController().setZoom(15.0);
                 mapView.invalidate();
 
-                // Chuyển sang Chế độ Dẫn đường
                 currentMode = MODE_FOLLOW_ROUTE;
                 tvQuickStatus.setText("Chế độ: DẪN ĐƯỜNG GPX");
-
-                // Đóng menu lại ngay để hiển thị toàn màn hình bản đồ
                 drawerLayout.closeDrawer(GravityCompat.START);
                 Toast.makeText(this, "Đã nạp lộ trình (" + points.size() + " điểm). Không ghi vết.", Toast.LENGTH_SHORT).show();
             }
