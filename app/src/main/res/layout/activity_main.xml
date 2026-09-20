@@ -1,34 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:orientation="vertical">
 
-    <!-- Bản đồ nền tràn toàn màn hình -->
-    <org.osmdroid.views.MapView
-        android:id="@+id/mapView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-
-    <!-- Thẻ thông số GPS nổi bán trong suốt góc trên bên trái -->
+    <!-- Bảng thông số -->
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
-        android:layout_alignParentStart="true"
-        android:layout_alignParentLeft="true"
-        android:layout_margin="10dp"
+        android:orientation="vertical"
         android:padding="8dp"
-        android:background="#CCFFFFFF"
-        android:elevation="4dp"
-        android:orientation="vertical">
+        android:background="#EEEEEE">
 
         <TextView
             android:id="@+id/tvStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Trạng thái: Đã dừng"
-            android:textColor="#222222"
-            android:textSize="12sp"
+            android:textSize="14sp"
             android:textStyle="bold" />
 
         <TextView
@@ -36,48 +25,58 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Tọa độ: 0.0, 0.0"
-            android:textColor="#444444"
-            android:textSize="11sp" />
+            android:textSize="13sp" />
 
         <TextView
             android:id="@+id/tvPointCount"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Số điểm đã ghi: 0"
-            android:textColor="#444444"
-            android:textSize="11sp" />
+            android:textSize="13sp" />
     </LinearLayout>
 
-    <!-- Cụm nút bấm nổi góc dưới bên phải -->
+    <!-- Khung bản đồ -->
+    <org.osmdroid.views.MapView
+        android:id="@+id/mapView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- Cụm nút điều khiển 3 nút -->
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
-        android:layout_alignParentEnd="true"
-        android:layout_alignParentRight="true"
-        android:layout_margin="10dp"
-        android:elevation="4dp"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:padding="6dp">
+
+        <Button
+            android:id="@+id/btnLoadGpx"
+            android:layout_width="0dp"
+            android:layout_height="50dp"
+            android:layout_weight="1"
+            android:text="Nạp GPX"
+            android:textSize="13sp"
+            android:layout_marginEnd="2dp" />
 
         <Button
             android:id="@+id/btnStart"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:paddingLeft="12dp"
-            android:paddingRight="12dp"
+            android:layout_width="0dp"
+            android:layout_height="50dp"
+            android:layout_weight="1"
             android:text="Bắt đầu"
-            android:textSize="12sp"
-            android:layout_marginEnd="6dp" />
+            android:textSize="13sp"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp" />
 
         <Button
             android:id="@+id/btnStopExport"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:paddingLeft="12dp"
-            android:paddingRight="12dp"
-            android:text="Dừng &amp; Xuất"
-            android:textSize="12sp"
-            android:enabled="false" />
+            android:layout_width="0dp"
+            android:layout_height="50dp"
+            android:layout_weight="1.2"
+            android:text="Dừng/Xuất"
+            android:textSize="13sp"
+            android:enabled="false"
+            android:layout_marginStart="2dp" />
     </LinearLayout>
 
-</RelativeLayout>
+</LinearLayout>
