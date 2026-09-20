@@ -129,7 +129,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadOfflineMap() {
-        File mapFile = new File(Environment.getExternalStorageDirectory(), "osmdroid/BanDoJ2.sqlite");
+        File mapFile = new File(Environment.getExternalStorageDirectory(), "osmdroid/BanDoJ2.mbtiles");
         if (mapFile.exists()) {
             try {
                 File[] archives = new File[]{mapFile};
@@ -149,7 +149,7 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "Không thể đọc file bản đồ: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
         } else {
-            Toast.makeText(this, "Chưa tìm thấy file osmdroid/BanDoJ2.sqlite!", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Chưa tìm thấy file osmdroid/BanDoJ2.mbtiles!", Toast.LENGTH_LONG).show();
         }
     }
 
