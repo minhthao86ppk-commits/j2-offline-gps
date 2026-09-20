@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- 1. MÀN HÌNH CHÍNH: BẢN ĐỒ TOÀN MÀN HÌNH -->
+    <!-- 1. KHUNG HIỂN THỊ BẢN ĐỒ TOÀN MÀN HÌNH -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent">
@@ -15,7 +15,6 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
-        <!-- Nút mở Menu góc trên bên trái -->
         <Button
             android:id="@+id/btnOpenMenu"
             android:layout_width="wrap_content"
@@ -29,7 +28,6 @@
             android:paddingStart="14dp"
             android:paddingEnd="14dp" />
 
-        <!-- Nhãn trạng thái góc trên bên phải -->
         <TextView
             android:id="@+id/tvQuickStatus"
             android:layout_width="wrap_content"
@@ -44,7 +42,7 @@
             android:textStyle="bold" />
     </FrameLayout>
 
-    <!-- 2. MENU TRƯỢT CHỈ HUY TÁC CHIẾN -->
+    <!-- 2. MENU ĐIỀU HÀNH TÁC CHIẾN -->
     <ScrollView
         android:layout_width="290dp"
         android:layout_height="match_parent"
@@ -117,7 +115,7 @@
                 android:layout_marginTop="10dp"
                 android:layout_marginBottom="10dp" />
 
-            <!-- PHÂN ĐOÀN 2: DẪN ĐƯỜNG THEO FILE GPX -->
+            <!-- PHÂN ĐOÀN 2: DẪN ĐƯỜNG GPX -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -260,7 +258,7 @@
                     android:layout_marginStart="2dp" />
             </LinearLayout>
 
-            <!-- 7. TÌNH HUỐNG KHẨN CẤP (SOS) -->
+            <!-- 7. TÌNH HUỐNG KHẨN CẤP -->
             <Button
                 android:id="@+id/btnCmdEmergency"
                 android:layout_width="match_parent"
