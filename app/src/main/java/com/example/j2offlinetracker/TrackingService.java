@@ -12,6 +12,7 @@ import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.PowerManager;
 import androidx.core.app.NotificationCompat;
 
 public class TrackingService extends Service implements LocationListener {
@@ -21,6 +22,7 @@ public class TrackingService extends Service implements LocationListener {
 
     private LocationManager locationManager;
     private DatabaseHelper dbHelper;
+    private PowerManager.WakeLock wakeLock;
 
     @Override
     public void onCreate() {
@@ -28,12 +30,21 @@ public class TrackingService extends Service implements LocationListener {
         dbHelper = new DatabaseHelper(this);
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
 
+        // 1. Kích hoạt WakeLock giữ CPU thức khi tắt/khóa màn hình
+        PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (powerManager != null) {
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "J2Tracker:GpsWakeLock");
+            wakeLock.acquire();
+        }
+
+        // 2. Chạy dịch vụ ưu tiên cao (Foreground Service)
         createNotificationChannel();
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("GPS Tracker Offline")
-                .setContentText("Đang ghi nhận vị trí phần cứng...")
+                .setContentTitle("Hệ thống định vị tác chiến")
+                .setContentText("Đang duy trì khóa GPS ngầm liên tục...")
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setOngoing(true)
                 .build();
 
         startForeground(NOTIFICATION_ID, notification);
@@ -45,8 +56,9 @@ public class TrackingService extends Service implements LocationListener {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
                     "GPS Offline Service",
-                    NotificationManager.IMPORTANCE_LOW
+                    NotificationManager.IMPORTANCE_HIGH
             );
+            channel.setDescription("Duy trì định vị khi khóa màn hình");
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) {
                 manager.createNotificationChannel(channel);
@@ -57,11 +69,11 @@ public class TrackingService extends Service implements LocationListener {
     private void startLocationUpdates() {
         try {
             if (locationManager != null) {
-                // Nhận cập nhật sau mỗi 5 giây hoặc khi di chuyển ít nhất 10 mét
+                // Cập nhật tọa độ mỗi 2 giây hoặc dịch chuyển từ 1 mét trở lên
                 locationManager.requestLocationUpdates(
                         LocationManager.GPS_PROVIDER,
-                        5000L,
-                        10.0f,
+                        2000L,
+                        1.0f,
                         this
                 );
             }
@@ -73,6 +85,7 @@ public class TrackingService extends Service implements LocationListener {
     @Override
     public void onLocationChanged(Location location) {
         if (location != null) {
+            // Lưu trực tiếp vào cơ sở dữ liệu SQLite
             dbHelper.insertPoint(
                     location.getLatitude(),
                     location.getLongitude(),
@@ -80,10 +93,11 @@ public class TrackingService extends Service implements LocationListener {
                     location.getTime()
             );
 
-            // Gửi broadcast cập nhật màn hình chính
+            // Gửi broadcast cập nhật màn hình
             Intent intent = new Intent("GPS_LOCATION_UPDATE");
             intent.putExtra("lat", location.getLatitude());
             intent.putExtra("lng", location.getLongitude());
+            intent.putExtra("speed", location.getSpeed());
             sendBroadcast(intent);
         }
     }
@@ -95,6 +109,9 @@ public class TrackingService extends Service implements LocationListener {
             try {
                 locationManager.removeUpdates(this);
             } catch (SecurityException ignored) {}
+        }
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
         }
     }
 
@@ -110,10 +127,8 @@ public class TrackingService extends Service implements LocationListener {
 
     @Override
     public void onStatusChanged(String provider, int status, Bundle extras) {}
-
     @Override
     public void onProviderEnabled(String provider) {}
-
     @Override
     public void onProviderDisabled(String provider) {}
 }
