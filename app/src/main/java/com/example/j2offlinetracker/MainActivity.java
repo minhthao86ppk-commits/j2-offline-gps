@@ -89,6 +89,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private Vibrator vibrator;
     private Ringtone alertRingtone;
 
+    // Bộ thu nhận tọa độ thời gian thực từ TrackingService chạy ngầm
     private final BroadcastReceiver locationReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -102,7 +103,13 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             if (currentMode == MODE_RECORDING) {
                 trackLine.addPoint(pt);
                 tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm\nTọa độ: %.5f, %.5f", dbHelper.getPointCount(), lat, lng));
+            } else if (currentMode == MODE_FOLLOW_ROUTE) {
+                // Ở chế độ dẫn đường: Vẽ vệt xanh bám theo vệt cam mẫu và tự động cuộn tâm bản đồ theo xe
+                trackLine.addPoint(pt);
+                mapView.getController().animateTo(pt);
+                tvQuickStatus.setText(String.format(Locale.US, "Dẫn đường: %.5f, %.5f", lat, lng));
             }
+
             mapView.invalidate();
         }
     };
@@ -158,14 +165,20 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         mapView.setMultiTouchControls(true);
         mapView.setUseDataConnection(false);
 
+        // Đường dẫn đường mẫu theo file GPX (Màu cam)
         plannedGpxLine = new Polyline(mapView);
         plannedGpxLine.setColor(Color.parseColor("#FF6600"));
         plannedGpxLine.setWidth(8.0f);
+        plannedGpxLine.getOutlinePaint().setStrokeJoin(Paint.Join.ROUND);
+        plannedGpxLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
         mapView.getOverlays().add(plannedGpxLine);
 
+        // Đường xe chạy thực tế (Màu xanh dương)
         trackLine = new Polyline(mapView);
         trackLine.setColor(Color.parseColor("#003399"));
         trackLine.setWidth(7.0f);
+        trackLine.getOutlinePaint().setStrokeJoin(Paint.Join.ROUND);
+        trackLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
         mapView.getOverlays().add(trackLine);
 
         currentMarker = new Marker(mapView);
@@ -264,7 +277,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             tvQuickStatus.setText("GPS: Đã khóa vị trí");
         } else if (currentMode == MODE_FOLLOW_ROUTE) {
             mapView.getController().animateTo(currentPoint);
-            tvQuickStatus.setText(String.format(Locale.US, "Lộ trình: %.4f, %.4f", location.getLatitude(), location.getLongitude()));
+            tvQuickStatus.setText(String.format(Locale.US, "Dẫn đường: %.5f, %.5f", location.getLatitude(), location.getLongitude()));
         }
 
         mapView.invalidate();
@@ -295,10 +308,16 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
 
         btnClearRoute.setOnClickListener(v -> {
             plannedGpxLine.getActualPoints().clear();
+            trackLine.getActualPoints().clear();
             currentMode = MODE_STANDBY;
             tvQuickStatus.setText("Chế độ: Chờ lệnh");
             mapView.invalidate();
             drawerLayout.closeDrawer(GravityCompat.START);
+
+            // Tắt Service ngầm khi người dùng dừng dẫn đường
+            Intent intent = new Intent(this, TrackingService.class);
+            stopService(intent);
+
             Toast.makeText(this, "Đã dọn sạch lộ trình dẫn đường", Toast.LENGTH_SHORT).show();
         });
     }
@@ -379,6 +398,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             }
 
             if (!points.isEmpty()) {
+                dbHelper.clearAllPoints();
                 trackLine.getActualPoints().clear();
                 plannedGpxLine.setPoints(points);
                 mapView.getController().animateTo(points.get(0));
@@ -388,7 +408,12 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 currentMode = MODE_FOLLOW_ROUTE;
                 tvQuickStatus.setText("Chế độ: DẪN ĐƯỜNG GPX");
                 drawerLayout.closeDrawer(GravityCompat.START);
-                Toast.makeText(this, "Đã nạp: " + gpxFile.getName(), Toast.LENGTH_SHORT).show();
+
+                // KÍCH HOẠT SERVICE NGẦM ĐỂ DUY TRÌ WAKELOCK & GPS KHI KHÓA MÀN HÌNH
+                Intent intent = new Intent(this, TrackingService.class);
+                ContextCompat.startForegroundService(this, intent);
+
+                Toast.makeText(this, "Đang dẫn đường: " + gpxFile.getName(), Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             Toast.makeText(this, "Lỗi nạp file: " + e.getMessage(), Toast.LENGTH_SHORT).show();
@@ -456,6 +481,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         }
     }
 
+    // Đọc bù toàn bộ tọa độ đã được lưu ngầm trong SQLite vào vệt vẽ
     private void loadExistingTrackFromDb() {
         Cursor cursor = dbHelper.getAllPoints();
         if (cursor != null) {
@@ -472,6 +498,9 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             if (lastPoint != null) {
                 currentMarker.setPosition(lastPoint);
                 currentMarker.setVisible(true);
+                if (currentMode == MODE_FOLLOW_ROUTE) {
+                    mapView.getController().animateTo(lastPoint);
+                }
             }
             tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm", dbHelper.getPointCount()));
             mapView.invalidate();
@@ -544,8 +573,9 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         mapView.onResume();
         registerReceiver(locationReceiver, new IntentFilter("GPS_LOCATION_UPDATE"));
 
-        if (currentMode == MODE_RECORDING) {
-            loadExistingTrackFromDb(); // Nạp bù toàn bộ tọa độ nhận được khi khóa màn hình
+        // Khi bật sáng màn hình: Vẽ bù ngay lập tức các điểm GPS đã nhận ngầm trong lúc khóa máy
+        if (currentMode == MODE_RECORDING || currentMode == MODE_FOLLOW_ROUTE) {
+            loadExistingTrackFromDb();
         }
         startImmediateLocationListening();
     }
@@ -558,7 +588,8 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             unregisterReceiver(locationReceiver);
         } catch (Exception ignored) {}
 
-        if (currentMode != MODE_RECORDING) {
+        // KHÔNG ngắt GPS nếu đang ghi HOẶC đang dẫn đường theo GPX
+        if (currentMode != MODE_RECORDING && currentMode != MODE_FOLLOW_ROUTE) {
             try {
                 locationManager.removeUpdates(this);
             } catch (Exception ignored) {}
