@@ -24,24 +24,26 @@ public class TrackingService extends Service implements LocationListener {
     private DatabaseHelper dbHelper;
     private PowerManager.WakeLock wakeLock;
 
+    // Lưu mốc vị trí hợp lệ gần nhất để kiểm tra phi lý
+    private Location lastRecordedLocation = null;
+
     @Override
     public void onCreate() {
         super.onCreate();
         dbHelper = new DatabaseHelper(this);
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
 
-        // 1. Kích hoạt WakeLock giữ CPU thức khi tắt/khóa màn hình
+        // Giữ CPU luôn thức khi khóa màn hình
         PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (powerManager != null) {
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "J2Tracker:GpsWakeLock");
             wakeLock.acquire();
         }
 
-        // 2. Chạy dịch vụ ưu tiên cao (Foreground Service)
         createNotificationChannel();
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Hệ thống định vị tác chiến")
-                .setContentText("Đang duy trì khóa GPS ngầm liên tục...")
+                .setContentText("Đang bám sát góc cua và tim đường...")
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setOngoing(true)
@@ -58,7 +60,7 @@ public class TrackingService extends Service implements LocationListener {
                     "GPS Offline Service",
                     NotificationManager.IMPORTANCE_HIGH
             );
-            channel.setDescription("Duy trì định vị khi khóa màn hình");
+            channel.setDescription("Duy trì định vị chính xác khi khóa màn hình");
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) {
                 manager.createNotificationChannel(channel);
@@ -69,11 +71,12 @@ public class TrackingService extends Service implements LocationListener {
     private void startLocationUpdates() {
         try {
             if (locationManager != null) {
-                // Cập nhật tọa độ mỗi 2 giây hoặc dịch chuyển từ 1 mét trở lên
+                // ĐẶC BIỆT QUAN TRỌNG: minDistance = 0.0f và minTime = 1000ms
+                // Bắt buộc chip GPS trả về mọi điểm mốc ở đỉnh góc cua mà không bị bỏ qua
                 locationManager.requestLocationUpdates(
                         LocationManager.GPS_PROVIDER,
-                        2000L,
-                        1.0f,
+                        1000L,
+                        0.0f,
                         this
                 );
             }
@@ -84,22 +87,46 @@ public class TrackingService extends Service implements LocationListener {
 
     @Override
     public void onLocationChanged(Location location) {
-        if (location != null) {
-            // Lưu trực tiếp vào cơ sở dữ liệu SQLite
-            dbHelper.insertPoint(
-                    location.getLatitude(),
-                    location.getLongitude(),
-                    location.getSpeed(),
-                    location.getTime()
-            );
+        if (location == null) return;
 
-            // Gửi broadcast cập nhật màn hình
-            Intent intent = new Intent("GPS_LOCATION_UPDATE");
-            intent.putExtra("lat", location.getLatitude());
-            intent.putExtra("lng", location.getLongitude());
-            intent.putExtra("speed", location.getSpeed());
-            sendBroadcast(intent);
+        // 1. Lọc bỏ điểm có sai số vệ tinh quá lớn (> 12 mét)
+        if (location.hasAccuracy() && location.getAccuracy() > 12.0f) {
+            return;
         }
+
+        if (lastRecordedLocation != null) {
+            float distance = location.distanceTo(lastRecordedLocation);
+            long timeDelta = (location.getTime() - lastRecordedLocation.getTime()) / 1000;
+            if (timeDelta <= 0) timeDelta = 1;
+
+            // 2. Chống trôi dạt khi đứng yên: Nếu dịch chuyển < 1.5m và tốc độ < 0.3 m/s (~1 km/h) thì bỏ qua
+            if (distance < 1.5f && location.getSpeed() < 0.3f) {
+                return;
+            }
+
+            // 3. Chống điểm giật văng xa bất thường (nhảy cóc > 35 m/s tương đương > 120 km/h)
+            float speedCheck = distance / timeDelta;
+            if (speedCheck > 35.0f) {
+                return;
+            }
+        }
+
+        // 4. LƯU TRỰC TIẾP TỌA ĐỘ NGUYÊN BẢN (KHÔNG DÙNG EMA LÀM MÉO GÓC RẼ)
+        lastRecordedLocation = location;
+
+        dbHelper.insertPoint(
+                location.getLatitude(),
+                location.getLongitude(),
+                location.getSpeed(),
+                location.getTime()
+        );
+
+        // Bắn broadcast cập nhật giao diện
+        Intent intent = new Intent("GPS_LOCATION_UPDATE");
+        intent.putExtra("lat", location.getLatitude());
+        intent.putExtra("lng", location.getLongitude());
+        intent.putExtra("speed", location.getSpeed());
+        sendBroadcast(intent);
     }
 
     @Override
