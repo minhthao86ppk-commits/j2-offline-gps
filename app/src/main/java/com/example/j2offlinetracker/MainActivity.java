@@ -62,10 +62,9 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
 
     private static final int PERMISSION_REQUEST_CODE = 200;
 
-    // Các chế độ vận hành độc lập
     private static final int MODE_STANDBY = 0;
-    private static final int MODE_RECORDING = 1;     // Chế độ 1: Ghi vết di chuyển
-    private static final int MODE_FOLLOW_ROUTE = 2;  // Chế độ 2: Dẫn đường GPX không vẽ vệt
+    private static final int MODE_RECORDING = 1;
+    private static final int MODE_FOLLOW_ROUTE = 2;
 
     private int currentMode = MODE_STANDBY;
     private boolean isFirstGpsFix = true;
@@ -77,22 +76,19 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private Button btnStartRecord, btnStopRecord;
     private Button btnLoadFollowGpx, btnClearRoute;
 
-    // 7 nút lệnh điều hành chiến thuật
     private Button btnCmdStop, btnCmdResume, btnCmdSpeedUp, btnCmdSlowDown;
     private Button btnCmdCloseSpacing, btnCmdOpenSpacing, btnCmdEmergency;
 
-    private Polyline trackLine;       // Vệt ghi thực tế (Xanh dương đậm)
-    private Polyline plannedGpxLine;  // Tuyến đường lộ trình GPX (Cam đậm)
-    private Marker currentMarker;     // Chấm tròn phong cách Google Maps
+    private Polyline trackLine;
+    private Polyline plannedGpxLine;
+    private Marker currentMarker;
 
     private DatabaseHelper dbHelper;
     private LocationManager locationManager;
 
-    // Cảnh báo rung và chuông báo thức khi nhận lệnh
     private Vibrator vibrator;
     private Ringtone alertRingtone;
 
-    // Nhận broadcast tọa độ từ TrackingService khi chạy ngầm
     private final BroadcastReceiver locationReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -100,10 +96,14 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             double lng = intent.getDoubleExtra("lng", 0.0);
             GeoPoint pt = new GeoPoint(lat, lng);
 
+            currentMarker.setPosition(pt);
+            currentMarker.setVisible(true);
+
             if (currentMode == MODE_RECORDING) {
                 trackLine.addPoint(pt);
                 tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm\nTọa độ: %.5f, %.5f", dbHelper.getPointCount(), lat, lng));
             }
+            mapView.invalidate();
         }
     };
 
@@ -120,7 +120,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
 
-        // Khởi tạo âm thanh báo động khẩn cấp
         Uri alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
         if (alarmUri == null) {
             alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
@@ -146,7 +145,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         btnLoadFollowGpx = findViewById(R.id.btnLoadFollowGpx);
         btnClearRoute = findViewById(R.id.btnClearRoute);
 
-        // Ánh xạ 7 nút lệnh chiến thuật
         btnCmdStop = findViewById(R.id.btnCmdStop);
         btnCmdResume = findViewById(R.id.btnCmdResume);
         btnCmdSpeedUp = findViewById(R.id.btnCmdSpeedUp);
@@ -158,35 +156,30 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
 
     private void setupMapView() {
         mapView.setMultiTouchControls(true);
-        mapView.setUseDataConnection(false); // Ngắt hoàn toàn dữ liệu mạng Internet
+        mapView.setUseDataConnection(false);
 
-        // Tuyến đường mẫu GPX nạp vào: Màu Cam đậm, nét 8px
         plannedGpxLine = new Polyline(mapView);
         plannedGpxLine.setColor(Color.parseColor("#FF6600"));
         plannedGpxLine.setWidth(8.0f);
         mapView.getOverlays().add(plannedGpxLine);
 
-        // Vệt thực tế di chuyển: Màu Xanh dương đậm, nét 7px
         trackLine = new Polyline(mapView);
         trackLine.setColor(Color.parseColor("#003399"));
         trackLine.setWidth(7.0f);
         mapView.getOverlays().add(trackLine);
 
-        // Con trỏ vị trí: Chấm tròn chuẩn Google Maps (Không dùng mũi tên xoay để tránh nhiễu)
         currentMarker = new Marker(mapView);
         currentMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
         currentMarker.setIcon(createGoogleMapsLocationDot());
-        currentMarker.setInfoWindow(null); // Vô hiệu hóa bóng thoại xám che đường
+        currentMarker.setInfoWindow(null);
         currentMarker.setVisible(false);
         mapView.getOverlays().add(currentMarker);
 
-        // Tâm mặc định ban đầu: Khu vực Sơn Tây
         GeoPoint centerPoint = new GeoPoint(21.135, 105.505);
         mapView.getController().setZoom(14.0);
         mapView.getController().setCenter(centerPoint);
     }
 
-    // Vẽ biểu tượng chấm xanh bằng Canvas (Quầng mờ + Vành trắng + Lõi xanh)
     private BitmapDrawable createGoogleMapsLocationDot() {
         int size = 64;
         Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
@@ -196,23 +189,19 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         float cx = size / 2f;
         float cy = size / 2f;
 
-        // 1. Quầng hào quang mờ
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.parseColor("#33007AFF"));
         canvas.drawCircle(cx, cy, 28f, paint);
 
-        // 2. Vành tròn bảo vệ màu trắng
         paint.setColor(Color.WHITE);
         canvas.drawCircle(cx, cy, 16f, paint);
 
-        // 3. Lõi chấm tròn màu xanh đậm Google Maps
         paint.setColor(Color.parseColor("#007AFF"));
         canvas.drawCircle(cx, cy, 12f, paint);
 
         return new BitmapDrawable(getResources(), bitmap);
     }
 
-    // Gán sự kiện cho 7 nút lệnh chỉ huy
     private void setupCommandButtons() {
         btnCmdStop.setOnClickListener(v -> sendTacticalCommand("0x01", "DỪNG XE"));
         btnCmdResume.setOnClickListener(v -> sendTacticalCommand("0x02", "TIẾP TỤC HÀNH QUÂN"));
@@ -223,18 +212,13 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         btnCmdEmergency.setOnClickListener(v -> sendTacticalCommand("0x99", "TÌNH HUỐNG KHẨN CẤP"));
     }
 
-    // Phát lệnh đi qua sóng vô tuyến LoRa / Bluetooth
     private void sendTacticalCommand(String cmdCode, String cmdDescription) {
         drawerLayout.closeDrawer(GravityCompat.START);
-
-        // Đóng gói chuỗi chuẩn: #CMD,ID,MA_LENH,NOI_DUNG\n
         String packet = String.format(Locale.US, "#CMD,1,%s,%s\n", cmdCode, cmdDescription);
-
         tvQuickStatus.setText("ĐÃ PHÁT: " + cmdDescription);
         Toast.makeText(this, "Đã phát lệnh LoRa: " + cmdDescription, Toast.LENGTH_SHORT).show();
     }
 
-    // Hiển thị hộp thoại khẩn cấp khi xe con hoặc đoàn xe nhận được lệnh
     public void showCommandAlert(String senderName, String commandText) {
         try {
             if (alertRingtone != null && !alertRingtone.isPlaying()) {
@@ -242,7 +226,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             }
             if (vibrator != null) {
                 long[] pattern = {0, 600, 300, 600, 300};
-                vibrator.vibrate(pattern, 0); // Rung liên hồi
+                vibrator.vibrate(pattern, 0);
             }
         } catch (Exception ignored) {}
 
@@ -297,7 +281,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         btnOpenMenu.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
         btnCloseMenu.setOnClickListener(v -> drawerLayout.closeDrawer(GravityCompat.START));
 
-        // Chế độ 1: Ghi lộ trình
         btnStartRecord.setOnClickListener(v -> {
             drawerLayout.closeDrawer(GravityCompat.START);
             startModeRecord();
@@ -308,7 +291,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             stopModeRecordAndExport();
         });
 
-        // Chế độ 2: Dẫn đường GPX
         btnLoadFollowGpx.setOnClickListener(v -> pickGpxForNavigation());
 
         btnClearRoute.setOnClickListener(v -> {
@@ -330,7 +312,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         mapView.invalidate();
 
         Intent intent = new Intent(this, TrackingService.class);
-        startService(intent);
+        ContextCompat.startForegroundService(this, intent);
 
         btnStartRecord.setEnabled(false);
         btnStopRecord.setEnabled(true);
@@ -406,7 +388,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 currentMode = MODE_FOLLOW_ROUTE;
                 tvQuickStatus.setText("Chế độ: DẪN ĐƯỜNG GPX");
                 drawerLayout.closeDrawer(GravityCompat.START);
-                Toast.makeText(this, "Đã nạp: " + gpxFile.getName() + " (Không ghi đè vệt)", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Đã nạp: " + gpxFile.getName(), Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             Toast.makeText(this, "Lỗi nạp file: " + e.getMessage(), Toast.LENGTH_SHORT).show();
@@ -471,6 +453,28 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             Toast.makeText(this, "Lỗi xuất: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         } finally {
             cursor.close();
+        }
+    }
+
+    private void loadExistingTrackFromDb() {
+        Cursor cursor = dbHelper.getAllPoints();
+        if (cursor != null) {
+            trackLine.getActualPoints().clear();
+            GeoPoint lastPoint = null;
+            while (cursor.moveToNext()) {
+                double lat = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LAT));
+                double lng = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LNG));
+                lastPoint = new GeoPoint(lat, lng);
+                trackLine.addPoint(lastPoint);
+            }
+            cursor.close();
+
+            if (lastPoint != null) {
+                currentMarker.setPosition(lastPoint);
+                currentMarker.setVisible(true);
+            }
+            tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm", dbHelper.getPointCount()));
+            mapView.invalidate();
         }
     }
 
@@ -539,6 +543,10 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         super.onResume();
         mapView.onResume();
         registerReceiver(locationReceiver, new IntentFilter("GPS_LOCATION_UPDATE"));
+
+        if (currentMode == MODE_RECORDING) {
+            loadExistingTrackFromDb(); // Nạp bù toàn bộ tọa độ nhận được khi khóa màn hình
+        }
         startImmediateLocationListening();
     }
 
@@ -546,10 +554,15 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     protected void onPause() {
         super.onPause();
         mapView.onPause();
-        unregisterReceiver(locationReceiver);
         try {
-            locationManager.removeUpdates(this);
+            unregisterReceiver(locationReceiver);
         } catch (Exception ignored) {}
+
+        if (currentMode != MODE_RECORDING) {
+            try {
+                locationManager.removeUpdates(this);
+            } catch (Exception ignored) {}
+        }
     }
 
     @Override
