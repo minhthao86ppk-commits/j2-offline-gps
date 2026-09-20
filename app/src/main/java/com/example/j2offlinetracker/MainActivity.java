@@ -11,7 +11,11 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.drawable.BitmapDrawable;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.Environment;
 import android.preference.PreferenceManager;
@@ -51,16 +55,16 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements LocationListener {
 
     private static final int PERMISSION_REQUEST_CODE = 200;
 
-    // Định nghĩa 2 chế độ độc lập
     private static final int MODE_STANDBY = 0;
-    private static final int MODE_RECORDING = 1;     // Chế độ 1: Ghi vết
+    private static final int MODE_RECORDING = 1;     // Chế độ 1: Ghi lộ trình
     private static final int MODE_FOLLOW_ROUTE = 2;  // Chế độ 2: Dẫn đường GPX
 
     private int currentMode = MODE_STANDBY;
+    private boolean isFirstGpsFix = true; // Cờ theo dõi lần đầu bắt được GPS để dời tâm
 
     private DrawerLayout drawerLayout;
     private MapView mapView;
@@ -70,30 +74,26 @@ public class MainActivity extends AppCompatActivity {
     private Button btnLoadFollowGpx, btnClearRoute;
 
     private Polyline trackLine;       // Vệt GPS di chuyển thực tế (Xanh dương)
-    private Polyline plannedGpxLine;  // Vệt lộ trình mẫu GPX (Cam)
-    private Marker currentMarker;     // Chấm tròn phong cách Google Maps
+    private Polyline plannedGpxLine;  // Tuyến đường lộ trình GPX mẫu (Cam)
+    private Marker currentMarker;     // Con trỏ chấm tròn xanh tích hợp mũi tên chỉ hướng
 
     private DatabaseHelper dbHelper;
+    private LocationManager locationManager;
+    private GeoPoint lastPoint = null;
 
+    // Bộ nhận Broadcast khi chạy ngầm từ TrackingService (Chế độ 1)
     private final BroadcastReceiver locationReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             double lat = intent.getDoubleExtra("lat", 0.0);
             double lng = intent.getDoubleExtra("lng", 0.0);
-            GeoPoint currentPoint = new GeoPoint(lat, lng);
-
-            currentMarker.setPosition(currentPoint);
-            currentMarker.setVisible(true);
+            GeoPoint pt = new GeoPoint(lat, lng);
 
             if (currentMode == MODE_RECORDING) {
-                trackLine.addPoint(currentPoint);
+                trackLine.addPoint(pt);
                 tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm\nTọa độ: %.5f, %.5f", dbHelper.getPointCount(), lat, lng));
-            } else if (currentMode == MODE_FOLLOW_ROUTE) {
-                tvQuickStatus.setText(String.format(Locale.US, "Dẫn đường: %.4f, %.4f", lat, lng));
             }
-
-            mapView.getController().animateTo(currentPoint);
-            mapView.invalidate();
+            updateCurrentPosition(pt, 0f, false);
         }
     };
 
@@ -107,6 +107,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         dbHelper = new DatabaseHelper(this);
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
 
         drawerLayout = findViewById(R.id.drawer_layout);
         mapView = findViewById(R.id.mapView);
@@ -128,47 +129,149 @@ public class MainActivity extends AppCompatActivity {
         mapView.setMultiTouchControls(true);
         mapView.setUseDataConnection(false);
 
-        // Lộ trình mẫu GPX (Cam đậm nét 8px)
+        // Tuyến đường GPX dẫn đường: Màu cam đậm nét 8px
         plannedGpxLine = new Polyline(mapView);
         plannedGpxLine.setColor(Color.parseColor("#FF6600"));
         plannedGpxLine.setWidth(8.0f);
         mapView.getOverlays().add(plannedGpxLine);
 
-        // Vệt ghi thực tế (Xanh dương đậm nét 7px)
+        // Vệt thực tế: Màu xanh dương đậm nét 7px
         trackLine = new Polyline(mapView);
         trackLine.setColor(Color.parseColor("#003399"));
         trackLine.setWidth(7.0f);
         mapView.getOverlays().add(trackLine);
 
-        // Chấm tròn Google Maps
+        // Con trỏ vị trí: Chấm xanh + Mũi tên định hướng xoay
         currentMarker = new Marker(mapView);
         currentMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
-        currentMarker.setIcon(createGoogleMapsLocationDot());
+        currentMarker.setIcon(createNavArrowIcon());
+        currentMarker.setFlat(true);
         currentMarker.setVisible(false);
         mapView.getOverlays().add(currentMarker);
 
+        // Tâm mặc định ban đầu
         GeoPoint centerPoint = new GeoPoint(21.135, 105.505);
         mapView.getController().setZoom(14.0);
         mapView.getController().setCenter(centerPoint);
     }
 
-    private BitmapDrawable createGoogleMapsLocationDot() {
-        int size = 64;
+    // Vẽ biểu tượng Chấm xanh kết hợp Mũi tên chỉ hướng di chuyển
+    private BitmapDrawable createNavArrowIcon() {
+        int size = 80;
         Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
+
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        paint.setColor(Color.parseColor("#332196F3"));
-        canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint);
+        float cx = size / 2f;
+        float cy = size / 2f;
 
+        // 1. Vẽ quầng mờ xanh
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.parseColor("#33007AFF"));
+        canvas.drawCircle(cx, cy, 38f, paint);
+
+        // 2. Vẽ mũi tên điều hướng nhọn nhô về phía trước (Hướng 12 giờ)
+        Path arrowPath = new Path();
+        arrowPath.moveTo(cx, 4f);       // Đầu nhọn mũi tên
+        arrowPath.lineTo(cx + 18f, 32f); // Cánh phải
+        arrowPath.lineTo(cx, 24f);       // Rãnh hõm giữa
+        arrowPath.lineTo(cx - 18f, 32f); // Cánh trái
+        arrowPath.close();
+
+        // Viền trắng cho mũi tên
         paint.setColor(Color.WHITE);
-        canvas.drawCircle(size / 2f, size / 2f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(5f);
+        canvas.drawPath(arrowPath, paint);
 
+        // Ruột mũi tên màu xanh
+        paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.parseColor("#007AFF"));
-        canvas.drawCircle(size / 2f, size / 2f, 13f, paint);
+        canvas.drawPath(arrowPath, paint);
+
+        // 3. Vành tròn trắng bảo vệ chấm tâm
+        paint.setColor(Color.WHITE);
+        canvas.drawCircle(cx, cy, 18f, paint);
+
+        // 4. Lõi tròn màu xanh đậm Google Maps
+        paint.setColor(Color.parseColor("#007AFF"));
+        canvas.drawCircle(cx, cy, 13f, paint);
 
         return new BitmapDrawable(getResources(), bitmap);
     }
+
+    // Cập nhật vị trí, xoay mũi tên và tự dời tâm bản đồ
+    private void updateCurrentPosition(GeoPoint point, float bearing, boolean hasBearing) {
+        currentMarker.setPosition(point);
+        currentMarker.setVisible(true);
+
+        // Tính góc xoay mũi tên theo hướng di chuyển thực tế
+        if (hasBearing && bearing != 0f) {
+            currentMarker.setRotation(bearing);
+        } else if (lastPoint != null) {
+            double dLat = point.getLatitude() - lastPoint.getLatitude();
+            double dLng = point.getLongitude() - lastPoint.getLongitude();
+            if (Math.abs(dLat) > 0.00002 || Math.abs(dLng) > 0.00002) {
+                float calculatedBearing = (float) Math.toDegrees(Math.atan2(dLng, dLat));
+                if (calculatedBearing < 0) calculatedBearing += 360;
+                currentMarker.setRotation(calculatedBearing);
+            }
+        }
+        lastPoint = point;
+
+        // Tự động kéo tâm bản đồ về vị trí GPS khi vừa bắt được sóng lần đầu
+        if (isFirstGpsFix) {
+            mapView.getController().animateTo(point);
+            mapView.getController().setZoom(15.5);
+            isFirstGpsFix = false;
+            tvQuickStatus.setText("GPS: Đã khóa vị trí");
+        }
+
+        mapView.invalidate();
+    }
+
+    // Lắng nghe phần cứng GPS trực tiếp ngay khi mở app
+    private void startImmediateLocationListening() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        try {
+            // Kiểm tra vị trí lưu gần nhất
+            Location lastKnown = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            if (lastKnown != null) {
+                GeoPoint pt = new GeoPoint(lastKnown.getLatitude(), lastKnown.getLongitude());
+                updateCurrentPosition(pt, lastKnown.getBearing(), lastKnown.hasBearing());
+            }
+
+            // Kích hoạt nhận sóng GPS liên tục mỗi 1 giây hoặc 1 mét di chuyển
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1.0f, this);
+        } catch (Exception ignored) {}
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+        if (location == null) return;
+        GeoPoint pt = new GeoPoint(location.getLatitude(), location.getLongitude());
+
+        if (currentMode == MODE_STANDBY) {
+            tvQuickStatus.setText(String.format(Locale.US, "GPS: %.4f, %.4f", location.getLatitude(), location.getLongitude()));
+        } else if (currentMode == MODE_FOLLOW_ROUTE) {
+            // CHẾ ĐỘ 2: Chỉ cập nhật con trỏ mũi tên di chuyển, không ghi vệt
+            tvQuickStatus.setText(String.format(Locale.US, "Dẫn đường: %.4f, %.4f", location.getLatitude(), location.getLongitude()));
+            mapView.getController().animateTo(pt);
+        }
+
+        updateCurrentPosition(pt, location.getBearing(), location.hasBearing());
+    }
+
+    @Override
+    public void onStatusChanged(String provider, int status, Bundle extras) {}
+    @Override
+    public void onProviderEnabled(String provider) {}
+    @Override
+    public void onProviderDisabled(String provider) {}
 
     private void setupMenuEvents() {
         btnOpenMenu.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
@@ -369,6 +472,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (allGranted) {
             loadOfflineMap();
+            startImmediateLocationListening();
         } else {
             ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
         }
@@ -387,6 +491,7 @@ public class MainActivity extends AppCompatActivity {
             }
             if (allGranted) {
                 loadOfflineMap();
+                startImmediateLocationListening();
             } else {
                 Toast.makeText(this, "Cần cấp đủ quyền Vị trí & Bộ nhớ!", Toast.LENGTH_SHORT).show();
             }
@@ -398,6 +503,7 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         mapView.onResume();
         registerReceiver(locationReceiver, new IntentFilter("GPS_LOCATION_UPDATE"));
+        startImmediateLocationListening();
     }
 
     @Override
@@ -405,6 +511,9 @@ public class MainActivity extends AppCompatActivity {
         super.onPause();
         mapView.onPause();
         unregisterReceiver(locationReceiver);
+        try {
+            locationManager.removeUpdates(this);
+        } catch (Exception ignored) {}
     }
 
     @Override
