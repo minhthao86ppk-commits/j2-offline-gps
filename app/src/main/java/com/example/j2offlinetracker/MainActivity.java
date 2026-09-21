@@ -1,63 +1,6 @@
 package com.example.j2offlinetracker;
 
 import android.Manifest;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothSocket;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.pm.PackageManager;
-import android.database.Cursor;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.drawable.BitmapDrawable;
-import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
-import android.media.Ringtone;
-import android.media.RingtoneManager;
-import android.net.Uri;
-import android.os.Bundle;
-import android.os.Environment;
-import android.os.Vibrator;
-import android.preference.PreferenceManager;
-import android.util.Xml;
-import android.widget.Button;
-import android.widget.TextView;
-import android.widget.Toast;
-
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-import androidx.core.view.GravityCompat;
-import androidx.drawerlayout.widget.DrawerLayout;
-
-import org.osmdroid.config.Configuration;
-import org.osmdroid.tileprovider.modules.IArchiveFile;
-import org.osmdroid.tileprovider.modules.OfflineTileProvider;
-importLỗi **`compileDebugJavaWithJavac`** xảy ra do 2 nguyên nhân cú pháp trong tệp `MainActivity.java`:
-
-1. **Thiếu thư viện `import java.io.InputStream;`:** Khi thêm các luồng Bluetooth `InputStreamReader` và `OutputStream`, dòng thư viện `InputStream` phục vụ hàm nạp file GPX (`loadPlannedGpx`) bị sót, khiến trình biên dịch báo lỗi không tìm thấy ký hiệu `InputStream`.
-2. **Đoạn văn bản thừa lẫn vào đầu file:** Phần import bị dính đoạn chữ diễn giải khiến Java không thể nhận diện.
-
-Toàn bộ các thuật toán cốt lõi đã xây dựng trước đây (cơ chế chạy nền `TrackingService`, `PARTIAL_WAKE_LOCK`, chu kỳ lấy mẫu góc cua `1000ms/0m`, bộ lọc dao động khi dừng `< 1.5m`, lưu trữ SQLite cục bộ và cơ chế dẫn đường sạch không rối màn hình) **được giữ nguyên 100%**.
-
----
-
-### Mã nguồn chuẩn hóa hoàn chỉnh `MainActivity.java`
-
-Mở tệp **`app/src/main/java/com/example/j2offlinetracker/MainActivity.java`** trên GitHub, xóa toàn bộ và dán đè bản mã sạch bên dưới:
-
-```java
-package com.example.j2offlinetracker;
-
-import android.Manifest;
 import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -151,13 +94,13 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private Polyline plannedGpxLine;
     private Marker currentMarker;
 
-    // Lưu trữ & Cảm biến
+    // Cảm biến & Cơ sở dữ liệu
     private DatabaseHelper dbHelper;
     private LocationManager locationManager;
     private Vibrator vibrator;
     private Ringtone alertRingtone;
 
-    // Cấu hình Bluetooth Classic SPP cho mạch Heltec
+    // Cấu hình Bluetooth Classic SPP kết nối mạch Heltec LoRa
     private static final String TARGET_BT_NAME = "LoRa_Tactical_Bridge";
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private BluetoothAdapter bluetoothAdapter;
@@ -167,7 +110,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private volatile boolean isBtConnected = false;
     private long lastBtSendTime = 0;
 
-    // Bộ thu nhận tọa độ ngầm từ TrackingService
+    // Bộ thu nhận tọa độ thời gian thực từ TrackingService chạy ngầm
     private final BroadcastReceiver locationReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -184,12 +127,12 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 trackLine.addPoint(pt);
                 tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm\nTọa độ: %.5f, %.5f", dbHelper.getPointCount(), lat, lng));
             } else if (currentMode == MODE_FOLLOW_ROUTE) {
-                // Chế độ dẫn đường: Chỉ cuộn tâm bản đồ theo xe, không vẽ đè vệt để chống rối
+                // Chế độ dẫn đường: Chỉ trượt tâm bản đồ theo xe, KHÔNG vẽ đè vệt để màn hình thông thoáng
                 mapView.getController().animateTo(pt);
                 tvQuickStatus.setText(String.format(Locale.US, "Dẫn đường: %.5f, %.5f", lat, lng));
             }
 
-            // Định kỳ 1 giây gửi tọa độ máy sang Heltec qua Bluetooth để phát LoRa
+            // Định kỳ 1 giây: Gửi tọa độ điện thoại sang mạch Heltec qua Bluetooth để phát sóng LoRa
             if (System.currentTimeMillis() - lastBtSendTime > 1000) {
                 lastBtSendTime = System.currentTimeMillis();
                 String gpsPacket = String.format(Locale.US, "#GPS,%.6f,%.6f,%.1f\n", lat, lng, speed);
@@ -226,6 +169,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         setupCommandButtons();
         checkPermissionsAndInit();
 
+        // Tự động tìm và kết nối mạch Heltec LoRa
         startBluetoothConnection();
     }
 
@@ -254,7 +198,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         mapView.setMultiTouchControls(true);
         mapView.setUseDataConnection(false);
 
-        // Tuyến GPX dẫn đường: màu hồng dạ quang tương phản cao
+        // Tuyến GPX mẫu: Màu hồng dạ quang (#E91E63) tương phản rõ rệt trên nền bản đồ
         plannedGpxLine = new Polyline(mapView);
         plannedGpxLine.setColor(Color.parseColor("#E91E63"));
         plannedGpxLine.setWidth(9.0f);
@@ -262,7 +206,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         plannedGpxLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
         mapView.getOverlays().add(plannedGpxLine);
 
-        // Tuyến ghi thực tế: màu xanh đậm
+        // Tuyến ghi thực tế: Màu xanh đậm (#003399)
         trackLine = new Polyline(mapView);
         trackLine.setColor(Color.parseColor("#003399"));
         trackLine.setWidth(7.0f);
@@ -353,6 +297,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         });
     }
 
+    // --- MODULE KẾT NỐI BLUETOOTH TỰ ĐỘNG CHẠY NGẦM ---
     @SuppressLint("MissingPermission")
     private void startBluetoothConnection() {
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
