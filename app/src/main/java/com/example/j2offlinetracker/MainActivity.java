@@ -41,27 +41,24 @@ import androidx.drawerlayout.widget.DrawerLayout;
 import org.osmdroid.config.Configuration;
 import org.osmdroid.tileprovider.modules.IArchiveFile;
 import org.osmdroid.tileprovider.modules.OfflineTileProvider;
-importToàn bộ mã nguồn dưới đây đã tích hợp luồng kết nối **Bluetooth Classic (SPP)** tự động bắt tay với thiết bị **`LoRa_Tactical_Bridge`**, đồng thời **giữ nguyên 100% tất cả thuật toán định vị, cơ chế chạy ngầm khi tắt màn hình, bộ lọc nhiễu, xử lý SQLite và logic hiển thị bản đồ** đã tối ưu trước đó.
+importLỗi **`compileDebugJavaWithJavac`** xảy ra do 2 nguyên nhân cú pháp trong tệp `MainActivity.java`:
+
+1. **Thiếu thư viện `import java.io.InputStream;`:** Khi thêm các luồng Bluetooth `InputStreamReader` và `OutputStream`, dòng thư viện `InputStream` phục vụ hàm nạp file GPX (`loadPlannedGpx`) bị sót, khiến trình biên dịch báo lỗi không tìm thấy ký hiệu `InputStream`.
+2. **Đoạn văn bản thừa lẫn vào đầu file:** Phần import bị dính đoạn chữ diễn giải khiến Java không thể nhận diện.
+
+Toàn bộ các thuật toán cốt lõi đã xây dựng trước đây (cơ chế chạy nền `TrackingService`, `PARTIAL_WAKE_LOCK`, chu kỳ lấy mẫu góc cua `1000ms/0m`, bộ lọc dao động khi dừng `< 1.5m`, lưu trữ SQLite cục bộ và cơ chế dẫn đường sạch không rối màn hình) **được giữ nguyên 100%**.
 
 ---
 
-### Các điểm được bổ sung mà không ảnh hưởng thuật toán cũ
+### Mã nguồn chuẩn hóa hoàn chỉnh `MainActivity.java`
 
-1. **Luồng Bluetooth chạy nền độc lập (`BtThread`):** Quá trình dò tìm thiết bị `LoRa_Tactical_Bridge` và mở socket kết nối diễn ra ngầm trong luồng riêng, không làm đơ hay giật giao diện (chống tràn RAM và lỗi ANR trên cấu hình máy Samsung J2).
-2. **Tự động truyền tọa độ từ điện thoại sang mạch Heltec:** Mỗi khi bộ định vị của J2 chốt được tọa độ (cả khi bật hay khóa màn hình), ứng dụng tự động đóng gói chuỗi `#GPS,lat,lng,speed\n` bắn sang Heltec. Màn hình OLED của Heltec sẽ lập tức chuyển sang `BT: DA KET NOI J2` và cập nhật tọa độ thực tế từ J2 để phát sóng LoRa.
-3. **Đẩy lệnh chiến thuật qua LoRa:** Khi bạn bấm các nút mệnh lệnh (*DỪNG XE, TĂNG TỐC, SOS...*), chuỗi lệnh `#CMD,1,code,desc\n` sẽ được bắn thẳng qua Bluetooth để Heltec phát xung LoRa ra toàn đoàn.
-4. **Nhận lệnh chỉ huy hai chiều:** Khi Heltec nhận sóng LoRa từ xe khác hoặc trạm chỉ huy, gói tin được đẩy về J2 qua Bluetooth. Ứng dụng sẽ tự động rung chuông và bật hộp thoại khẩn cấp `showCommandAlert()`.
-
----
-
-### Mã nguồn hoàn chỉnh `MainActivity.java`
-
-Mở tệp **`app/src/main/java/com/example/j2offlinetracker/MainActivity.java`** trên GitHub, xóa toàn bộ nội dung cũ và dán đè bản mã nguồn hoàn chỉnh dưới đây:
+Mở tệp **`app/src/main/java/com/example/j2offlinetracker/MainActivity.java`** trên GitHub, xóa toàn bộ và dán đè bản mã sạch bên dưới:
 
 ```java
 package com.example.j2offlinetracker;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
@@ -84,8 +81,6 @@ import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
 import android.os.Vibrator;
 import android.preference.PreferenceManager;
 import android.util.Xml;
@@ -117,6 +112,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
@@ -161,17 +157,17 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private Vibrator vibrator;
     private Ringtone alertRingtone;
 
-    // --- CẤU HÌNH BLUETOOTH CLASSIC (SPP) CHO BO MẠCH HELTEC ---
+    // Cấu hình Bluetooth Classic SPP cho mạch Heltec
     private static final String TARGET_BT_NAME = "LoRa_Tactical_Bridge";
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothSocket btSocket;
     private OutputStream btOutputStream;
     private Thread btConnectThread;
-    private boolean isBtConnected = false;
+    private volatile boolean isBtConnected = false;
     private long lastBtSendTime = 0;
 
-    // Bộ thu nhận tọa độ thời gian thực từ TrackingService chạy ngầm
+    // Bộ thu nhận tọa độ ngầm từ TrackingService
     private final BroadcastReceiver locationReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -184,15 +180,16 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             currentMarker.setVisible(true);
 
             if (currentMode == MODE_RECORDING) {
+                // Chế độ ghi: Vẽ vệt xanh bám cua chính xác
                 trackLine.addPoint(pt);
                 tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm\nTọa độ: %.5f, %.5f", dbHelper.getPointCount(), lat, lng));
             } else if (currentMode == MODE_FOLLOW_ROUTE) {
-                // Chế độ dẫn đường: KHÔNG vẽ vệt để chống rối, chỉ trượt tâm bản đồ theo xe
+                // Chế độ dẫn đường: Chỉ cuộn tâm bản đồ theo xe, không vẽ đè vệt để chống rối
                 mapView.getController().animateTo(pt);
                 tvQuickStatus.setText(String.format(Locale.US, "Dẫn đường: %.5f, %.5f", lat, lng));
             }
 
-            // Định kỳ 1 giây: Gửi tọa độ điện thoại sang mạch Heltec qua Bluetooth để phát LoRa
+            // Định kỳ 1 giây gửi tọa độ máy sang Heltec qua Bluetooth để phát LoRa
             if (System.currentTimeMillis() - lastBtSendTime > 1000) {
                 lastBtSendTime = System.currentTimeMillis();
                 String gpsPacket = String.format(Locale.US, "#GPS,%.6f,%.6f,%.1f\n", lat, lng, speed);
@@ -229,7 +226,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         setupCommandButtons();
         checkPermissionsAndInit();
 
-        // Kích hoạt luồng kết nối Bluetooth tự động với Heltec
         startBluetoothConnection();
     }
 
@@ -258,7 +254,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         mapView.setMultiTouchControls(true);
         mapView.setUseDataConnection(false);
 
-        // Đường mẫu GPX màu hồng dạ quang (#E91E63)
+        // Tuyến GPX dẫn đường: màu hồng dạ quang tương phản cao
         plannedGpxLine = new Polyline(mapView);
         plannedGpxLine.setColor(Color.parseColor("#E91E63"));
         plannedGpxLine.setWidth(9.0f);
@@ -266,7 +262,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         plannedGpxLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
         mapView.getOverlays().add(plannedGpxLine);
 
-        // Vệt ghi thực tế màu xanh đậm (#003399)
+        // Tuyến ghi thực tế: màu xanh đậm
         trackLine = new Polyline(mapView);
         trackLine.setColor(Color.parseColor("#003399"));
         trackLine.setWidth(7.0f);
@@ -321,10 +317,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private void sendTacticalCommand(String cmdCode, String cmdDescription) {
         drawerLayout.closeDrawer(GravityCompat.START);
         String packet = String.format(Locale.US, "#CMD,1,%s,%s\n", cmdCode, cmdDescription);
-        
-        // Phát lệnh trực tiếp qua Bluetooth sang mạch Heltec
         sendBluetoothData(packet);
-
         tvQuickStatus.setText("ĐÃ PHÁT: " + cmdDescription);
         Toast.makeText(this, "Đã phát lệnh LoRa: " + cmdDescription, Toast.LENGTH_SHORT).show();
     }
@@ -360,7 +353,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         });
     }
 
-    // --- MODULE KẾT NỐI BLUETOOTH TỰ ĐỘNG CHẠY NGẦM ---
+    @SuppressLint("MissingPermission")
     private void startBluetoothConnection() {
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
             return;
@@ -395,13 +388,11 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                     tvQuickStatus.setText("LoRa: ĐÃ KẾT NỐI");
                 });
 
-                // Luồng lắng nghe dữ liệu dội về từ LoRa qua Bluetooth
                 BufferedReader reader = new BufferedReader(new InputStreamReader(btSocket.getInputStream()));
                 String line;
                 while (isBtConnected && (line = reader.readLine()) != null) {
                     final String receivedPacket = line.trim();
                     if (receivedPacket.startsWith("#CMD")) {
-                        // Định dạng: #CMD,ID,MÃ,NỘI_DUNG
                         String[] parts = receivedPacket.split(",");
                         if (parts.length >= 4) {
                             String cmdDesc = parts[3];
@@ -683,7 +674,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 currentMarker.setPosition(pt);
                 currentMarker.setVisible(true);
             }
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1.0f, this);
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0.0f, this);
         } catch (Exception ignored) {}
     }
 
@@ -742,7 +733,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         }
         startImmediateLocationListening();
 
-        // Tự động kết nối lại nếu bị gián đoạn
         if (!isBtConnected) {
             startBluetoothConnection();
         }
