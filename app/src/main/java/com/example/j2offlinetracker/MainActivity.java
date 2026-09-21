@@ -89,7 +89,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private Vibrator vibrator;
     private Ringtone alertRingtone;
 
-    // Bộ thu nhận tọa độ thời gian thực từ TrackingService chạy ngầm
     private final BroadcastReceiver locationReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -97,15 +96,16 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             double lng = intent.getDoubleExtra("lng", 0.0);
             GeoPoint pt = new GeoPoint(lat, lng);
 
+            // Cập nhật vị trí con trỏ
             currentMarker.setPosition(pt);
             currentMarker.setVisible(true);
 
             if (currentMode == MODE_RECORDING) {
+                // Chế độ ghi: Vẽ vệt hành quân thực tế
                 trackLine.addPoint(pt);
                 tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm\nTọa độ: %.5f, %.5f", dbHelper.getPointCount(), lat, lng));
             } else if (currentMode == MODE_FOLLOW_ROUTE) {
-                // Ở chế độ dẫn đường: Vẽ vệt xanh bám theo vệt cam mẫu và tự động cuộn tâm bản đồ theo xe
-                trackLine.addPoint(pt);
+                // Chế độ dẫn đường: KHÔNG vẽ vệt để chống rối màn hình, chỉ tự cuộn tâm bản đồ theo xe
                 mapView.getController().animateTo(pt);
                 tvQuickStatus.setText(String.format(Locale.US, "Dẫn đường: %.5f, %.5f", lat, lng));
             }
@@ -165,15 +165,15 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         mapView.setMultiTouchControls(true);
         mapView.setUseDataConnection(false);
 
-        // Đường dẫn đường mẫu theo file GPX (Màu cam)
+        // 1. TUYẾN GPX MẪU: Đổi sang màu Hồng dạ quang (#E91E63) cực kỳ nổi bật, không nhầm với màu đường xá
         plannedGpxLine = new Polyline(mapView);
-        plannedGpxLine.setColor(Color.parseColor("#FF6600"));
-        plannedGpxLine.setWidth(8.0f);
+        plannedGpxLine.setColor(Color.parseColor("#23e011")); // Muốn đổi màu khác: #00B0FF (Xanh lơ) hoặc #7B1FA2 (Tím)
+        plannedGpxLine.setWidth(9.0f);
         plannedGpxLine.getOutlinePaint().setStrokeJoin(Paint.Join.ROUND);
         plannedGpxLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
         mapView.getOverlays().add(plannedGpxLine);
 
-        // Đường xe chạy thực tế (Màu xanh dương)
+        // 2. VỆT GHI THỰC TẾ (Chỉ dùng khi bật chế độ Ghi hành trình)
         trackLine = new Polyline(mapView);
         trackLine.setColor(Color.parseColor("#003399"));
         trackLine.setWidth(7.0f);
@@ -314,7 +314,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             mapView.invalidate();
             drawerLayout.closeDrawer(GravityCompat.START);
 
-            // Tắt Service ngầm khi người dùng dừng dẫn đường
             Intent intent = new Intent(this, TrackingService.class);
             stopService(intent);
 
@@ -399,7 +398,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
 
             if (!points.isEmpty()) {
                 dbHelper.clearAllPoints();
-                trackLine.getActualPoints().clear();
+                trackLine.getActualPoints().clear(); // Dọn vệt cũ để bản đồ sạch hoàn toàn
                 plannedGpxLine.setPoints(points);
                 mapView.getController().animateTo(points.get(0));
                 mapView.getController().setZoom(16.0);
@@ -409,7 +408,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 tvQuickStatus.setText("Chế độ: DẪN ĐƯỜNG GPX");
                 drawerLayout.closeDrawer(GravityCompat.START);
 
-                // KÍCH HOẠT SERVICE NGẦM ĐỂ DUY TRÌ WAKELOCK & GPS KHI KHÓA MÀN HÌNH
+                // Giữ Service ngầm để GPS không ngủ khi tắt màn hình
                 Intent intent = new Intent(this, TrackingService.class);
                 ContextCompat.startForegroundService(this, intent);
 
@@ -481,7 +480,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         }
     }
 
-    // Đọc bù toàn bộ tọa độ đã được lưu ngầm trong SQLite vào vệt vẽ
     private void loadExistingTrackFromDb() {
         Cursor cursor = dbHelper.getAllPoints();
         if (cursor != null) {
@@ -498,9 +496,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             if (lastPoint != null) {
                 currentMarker.setPosition(lastPoint);
                 currentMarker.setVisible(true);
-                if (currentMode == MODE_FOLLOW_ROUTE) {
-                    mapView.getController().animateTo(lastPoint);
-                }
             }
             tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm", dbHelper.getPointCount()));
             mapView.invalidate();
@@ -573,8 +568,8 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         mapView.onResume();
         registerReceiver(locationReceiver, new IntentFilter("GPS_LOCATION_UPDATE"));
 
-        // Khi bật sáng màn hình: Vẽ bù ngay lập tức các điểm GPS đã nhận ngầm trong lúc khóa máy
-        if (currentMode == MODE_RECORDING || currentMode == MODE_FOLLOW_ROUTE) {
+        // CHỈ nạp lại vệt khi ở chế độ Ghi hành trình; chế độ Dẫn đường giữ màn hình sạch
+        if (currentMode == MODE_RECORDING) {
             loadExistingTrackFromDb();
         }
         startImmediateLocationListening();
@@ -588,7 +583,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             unregisterReceiver(locationReceiver);
         } catch (Exception ignored) {}
 
-        // KHÔNG ngắt GPS nếu đang ghi HOẶC đang dẫn đường theo GPX
         if (currentMode != MODE_RECORDING && currentMode != MODE_FOLLOW_ROUTE) {
             try {
                 locationManager.removeUpdates(this);
