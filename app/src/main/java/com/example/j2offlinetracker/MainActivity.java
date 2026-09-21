@@ -200,7 +200,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
 
         // Tuyến GPX mẫu: Màu hồng dạ quang (#E91E63) tương phản rõ rệt trên nền bản đồ
         plannedGpxLine = new Polyline(mapView);
-        plannedGpxLine.setColor(Color.parseColor("#E91E63"));
+        plannedGpxLine.setColor(Color.parseColor("#0eda4b"));
         plannedGpxLine.setWidth(9.0f);
         plannedGpxLine.getOutlinePaint().setStrokeJoin(Paint.Join.ROUND);
         plannedGpxLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
