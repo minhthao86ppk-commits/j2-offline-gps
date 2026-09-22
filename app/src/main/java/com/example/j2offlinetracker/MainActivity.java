@@ -72,9 +72,9 @@ import java.util.UUID;
 public class MainActivity extends AppCompatActivity implements LocationListener {
 
     private static final int PERMISSION_REQUEST_CODE = 200;
-    private static final float CONVOY_SPACING_LIMIT_METERS = 50.0f; // Ngưỡng cảnh báo: 50m[cite: 1]
+    private static final float CONVOY_SPACING_LIMIT_METERS = 50.0f; // Ngưỡng cảnh báo: 50m[cite: 4]
 
-    // Chế độ vận hành[cite: 3]
+    // Chế độ vận hành[cite: 4]
     private static final int MODE_STANDBY = 0;
     private static final int MODE_RECORDING = 1;
     private static final int MODE_FOLLOW_ROUTE = 2;
@@ -83,7 +83,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private boolean isFirstGpsFix = true;
     private boolean isWaitingFirstStartPoint = false;
 
-    // Định danh xe tác chiến[cite: 1]
+    // Định danh xe tác chiến[cite: 4]
     private int myVehicleId = 1;
     private int teammateId = 2;
     private SharedPreferences sharedPreferences;
@@ -97,22 +97,22 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private Button btnFlagYellow, btnFlagPurple, btnClearFlags;
     private Button btnLoadFollowGpx, btnClearRoute;
 
-    // Cụm 7 nút lệnh tác chiến LoRa[cite: 1]
+    // Cụm 7 nút lệnh tác chiến LoRa[cite: 4]
     private Button btnCmdStop, btnCmdResume, btnCmdSpeedUp, btnCmdSlowDown;
     private Button btnCmdCloseSpacing, btnCmdOpenSpacing, btnCmdEmergency;
 
-    // Lớp vẽ bản đồ & Marker xe[cite: 1]
+    // Lớp vẽ bản đồ & Marker xe[cite: 4]
     private Polyline trackLine;
     private Polyline plannedGpxLine;
     private Marker currentMarker;
     private Marker teammateMarker;
 
-    // Quản lý Cờ mốc Chế độ 1 (Ghi thực tế)[cite: 4, 5]
+    // Quản lý Cờ mốc Chế độ 1 (Ghi thực tế)[cite: 4]
     private Marker startFlagMarker;
     private Marker finishFlagMarker;
     private final List<Marker> tacticalFlagMarkers = new ArrayList<>();
 
-    // Quản lý Cờ mốc nạp từ GPX Chế độ 2 (Dẫn đường)[cite: 5]
+    // Quản lý Cờ mốc nạp từ GPX Chế độ 2 (Dẫn đường)
     private final List<Marker> plannedFlagMarkers = new ArrayList<>();
 
     // Quản lý vị trí & Giám sát cự ly
@@ -128,7 +128,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private Ringtone alertRingtone;
     private Ringtone warningBeep;
 
-    // Kết nối LoRa qua Bluetooth Classic SPP[cite: 1, 3]
+    // Kết nối LoRa qua Bluetooth Classic SPP[cite: 4]
     private static final String TARGET_BT_NAME = "LoRa_Tactical_Bridge";
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private BluetoothAdapter bluetoothAdapter;
@@ -138,7 +138,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private volatile boolean isBtConnected = false;
     private long lastBtSendTime = 0;
 
-    // Bộ thu nhận tọa độ ngầm từ TrackingService[cite: 1, 4]
+    // Bộ thu nhận tọa độ ngầm từ TrackingService[cite: 4]
     private final BroadcastReceiver locationReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -161,13 +161,13 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 trackLine.addPoint(myCurrentPoint);
                 tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm\nTọa độ: %.5f, %.5f", dbHelper.getPointCount(), lat, lng));
             } else if (currentMode == MODE_FOLLOW_ROUTE) {
-                // Tuyệt đối không vẽ vệt đè lên bản đồ khi bám GPX[cite: 1, 3]
+                // Tuyệt đối không vẽ vệt đè lên bản đồ khi bám GPX[cite: 4]
                 mapView.getController().animateTo(myCurrentPoint);
             }
 
             evaluateConvoySpacing();
 
-            // Định kỳ 1 giây: Gửi gói #POS qua LoRa[cite: 1]
+            // Định kỳ 1 giây: Gửi gói #POS qua LoRa[cite: 4]
             if (System.currentTimeMillis() - lastBtSendTime > 1000) {
                 lastBtSendTime = System.currentTimeMillis();
                 String posPacket = String.format(Locale.US, "#POS,%d,%.6f,%.6f,%.1f\n", myVehicleId, lat, lng, speed);
@@ -247,7 +247,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         mapView.setMultiTouchControls(true);
         mapView.setUseDataConnection(false);
 
-        // Tuyến GPX dẫn đường: Xanh lục dạ quang (#0EDA4B)[cite: 3]
+        // Tuyến GPX dẫn đường: Xanh lục dạ quang (#0EDA4B)[cite: 4]
         plannedGpxLine = new Polyline(mapView);
         plannedGpxLine.setColor(Color.parseColor("#0EDA4B"));
         plannedGpxLine.setWidth(9.0f);
@@ -279,7 +279,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         finishFlagMarker.setVisible(false);
         mapView.getOverlays().add(finishFlagMarker);
 
-        // Con trỏ vị trí xe mình
+        // Con trỏ vị trí xe mình[cite: 4]
         currentMarker = new Marker(mapView);
         currentMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
         currentMarker.setIcon(createVehicleDot(myVehicleId == 1 ? Color.parseColor("#007AFF") : Color.parseColor("#00C853")));
@@ -287,7 +287,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         currentMarker.setVisible(false);
         mapView.getOverlays().add(currentMarker);
 
-        // Con trỏ xe đồng đội qua LoRa[cite: 1]
+        // Con trỏ xe đồng đội qua LoRa[cite: 4]
         teammateMarker = new Marker(mapView);
         teammateMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
         teammateMarker.setIcon(createVehicleDot(Color.parseColor("#FF9100")));
@@ -310,22 +310,22 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
 
         float poleX = 22f;
 
-        // Cột cờ
+        // Cột cờ[cite: 4]
         paint.setColor(Color.parseColor("#263238"));
         paint.setStrokeWidth(4.5f);
         paint.setStyle(Paint.Style.STROKE);
         canvas.drawLine(poleX, 8f, poleX, 66f, paint);
 
-        // Đỉnh cột mạ vàng
+        // Đỉnh cột mạ vàng[cite: 4]
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.parseColor("#FFD600"));
         canvas.drawCircle(poleX, 8f, 4.5f, paint);
 
-        // Chân đế
+        // Chân đế[cite: 4]
         paint.setColor(Color.parseColor("#212121"));
         canvas.drawCircle(poleX, 66f, 5.5f, paint);
 
-        // Thân cờ đuôi nheo
+        // Thân cờ đuôi nheo[cite: 4]
         Path flagPath = new Path();
         flagPath.moveTo(poleX, 10f);
         flagPath.lineTo(poleX + 46f, 10f);
@@ -334,12 +334,12 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         flagPath.lineTo(poleX, 42f);
         flagPath.close();
 
-        // Đổ màu cờ
+        // Đổ màu cờ[cite: 4]
         paint.setColor(flagColor);
         paint.setStyle(Paint.Style.FILL);
         canvas.drawPath(flagPath, paint);
 
-        // Viền cờ màu trắng
+        // Viền cờ màu trắng[cite: 4]
         paint.setColor(Color.WHITE);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(2f);
@@ -394,7 +394,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 .show();
     }
 
-    // --- GIÁM SÁT CỰ LY ĐỘI HÌNH VÀ BÁO ĐỘNG > 50M ---[cite: 1, 4]
+    // --- GIÁM SÁT CỰ LY ĐỘI HÌNH VÀ BÁO ĐỘNG > 50M ---[cite: 4]
     private void evaluateConvoySpacing() {
         if (myCurrentPoint == null || teammatePoint == null) {
             return;
@@ -435,7 +435,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         }
     }
 
-    // --- KẾT NỐI BLUETOOTH & BÓC TÁCH GÓI TIN ĐA XE ---[cite: 1, 4]
+    // --- KẾT NỐI BLUETOOTH & BÓC TÁCH GÓI TIN ĐA XE ---[cite: 4]
     @SuppressLint("MissingPermission")
     private void startBluetoothConnection() {
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) return;
@@ -752,7 +752,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 .show();
     }
 
-    // --- NẠP GPX: NẠP VỆT DẠ QUANG VÀ TOÀN BỘ CỜ TÁC CHIẾN ĐÃ ĐÁNH DẤU ---[cite: 5]
+    // --- NẠP GPX: NẠP VỆT DẠ QUANG VÀ TOÀN BỘ CỜ TÁC CHIẾN ĐÃ ĐÁNH DẤU ---
     private void loadPlannedGpx(File gpxFile) {
         List<GeoPoint> points = new ArrayList<>();
 
@@ -811,7 +811,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                         flag.setAnchor(22f / 72f, 66f / 72f);
                         flag.setInfoWindow(null);
 
-                        // Phân loại cờ mốc tác chiến đã lưu[cite: 5]
+                        // Phân loại cờ mốc tác chiến đã lưu
                         if ("PURPLE".equalsIgnoreCase(wptType) || wptName.contains("KIEM_TRA")) {
                             flag.setIcon(createTacticalFlagIcon(Color.parseColor("#7B1FA2")));
                             flag.setTitle("KIỂM TRA");
@@ -839,7 +839,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 trackLine.getActualPoints().clear();
                 trackLine.setVisible(false);
 
-                // Tuyến lộ trình xanh lục dạ quang #0EDA4B[cite: 3]
+                // Tuyến lộ trình xanh lục dạ quang #0EDA4B[cite: 4]
                 plannedGpxLine.setPoints(points);
 
                 // Nếu file GPX bên ngoài không có thẻ <wpt> xuất phát, tự cắm Cờ Xanh ở đầu tuyến
@@ -897,7 +897,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         }
     }
 
-    // --- XUẤT FILE GPX: LƯU ĐẦY ĐỦ CẢ VỆT BÁNH XE VÀ TOÀN BỘ CỜ MỐC TÁC CHIẾN ---[cite: 5, 7]
+    // --- XUẤT FILE GPX: LƯU ĐẦY ĐỦ CẢ VỆT BÁNH XE VÀ TOÀN BỘ CỜ MỐC TÁC CHIẾN ---
     private void exportGpxFile() {
         Cursor cursor = dbHelper.getAllPoints();
         if (cursor == null || cursor.getCount() == 0) {
@@ -915,19 +915,19 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         try (FileWriter writer = new FileWriter(gpxFile)) {
             writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"J2OfflineTracker\">\n");
 
-            // 1. XUẤT CỜ XUẤT PHÁT (<wpt>)[cite: 5, 7]
-            if (startFlagMarker != null && startFlagMarker.isVisible() && startFlagMarker.getPosition() != null) {
+            // 1. XUẤT CỜ XUẤT PHÁT (<wpt>) - ĐÃ SỬA DÙNG isEnabled()
+            if (startFlagMarker != null && startFlagMarker.isEnabled() && startFlagMarker.getPosition() != null) {
                 writer.write(String.format(Locale.US, "  <wpt lat=\"%.6f\" lon=\"%.6f\">\n    <name>XP</name>\n    <type>GREEN</type>\n  </wpt>\n",
                         startFlagMarker.getPosition().getLatitude(), startFlagMarker.getPosition().getLongitude()));
             }
 
-            // 2. XUẤT CỜ ĐÍCH ĐẾN (<wpt>)[cite: 5, 7]
-            if (finishFlagMarker != null && finishFlagMarker.isVisible() && finishFlagMarker.getPosition() != null) {
+            // 2. XUẤT CỜ ĐÍCH ĐẾN (<wpt>) - ĐÃ SỬA DÙNG isEnabled()
+            if (finishFlagMarker != null && finishFlagMarker.isEnabled() && finishFlagMarker.getPosition() != null) {
                 writer.write(String.format(Locale.US, "  <wpt lat=\"%.6f\" lon=\"%.6f\">\n    <name>DICH</name>\n    <type>RED</type>\n  </wpt>\n",
                         finishFlagMarker.getPosition().getLatitude(), finishFlagMarker.getPosition().getLongitude()));
             }
 
-            // 3. XUẤT TOÀN BỘ CỜ VÀNG & CỜ TÍM (<wpt>)[cite: 5, 7]
+            // 3. XUẤT TOÀN BỘ CỜ VÀNG & CỜ TÍM (<wpt>)
             for (Marker flag : tacticalFlagMarkers) {
                 if (flag.getPosition() != null) {
                     String flagType = "YELLOW";
@@ -941,7 +941,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 }
             }
 
-            // 4. XUẤT VỆT DI CHUYỂN (<trkpt>)[cite: 7]
+            // 4. XUẤT VỆT DI CHUYỂN (<trkpt>)
             writer.write("  <trk>\n    <name>Track " + timeStamp + "</name>\n    <trkseg>\n");
             SimpleDateFormat isoFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
 
