@@ -5,42 +5,41 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- KHUNG HIỂN THỊ CHÍNH (BẢN ĐỒ & THANH TRẠNG THÁI TÁC CHIẾN) -->
+    <!-- KHUNG BẢN ĐỒ TOÀN MÀN HÌNH -->
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <!-- Lớp Bản đồ Ngoại tuyến OsmDroid -->
         <org.osmdroid.views.MapView
             android:id="@+id/mapView"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
-        <!-- Nút mở Menu Tác chiến dã chiến (Tối giản, bỏ icon) -->
+        <!-- Nút mở Menu tối giản góc trái -->
         <Button
             android:id="@+id/btnOpenMenu"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:text="TÁC CHIẾN"
+            android:layout_height="38dp"
+            android:text="MENU"
             android:textStyle="bold"
             android:textSize="12sp"
             android:textColor="#FFFFFF"
-            android:background="#DD1A237E"
+            android:background="#D32F2F"
             android:paddingLeft="14dp"
             android:paddingRight="14dp"
             android:layout_alignParentTop="true"
             android:layout_alignParentStart="true"
-            android:layout_margin="10dp" />
+            android:layout_margin="12dp" />
 
-        <!-- Bảng hiển thị thông tin & vai trò xe tác chiến -->
+        <!-- Bảng trạng thái gọn góc phải -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:layout_alignParentTop="true"
             android:layout_alignParentEnd="true"
-            android:layout_margin="10dp"
-            android:background="#DD000000"
+            android:layout_margin="12dp"
+            android:background="#CC000000"
             android:padding="8dp">
 
             <TextView
@@ -64,297 +63,346 @@
 
     </RelativeLayout>
 
-    <!-- MENU TRƯỢT DÃ CHIẾN 3 KHỐI THẺ TỐI GIẢN -->
+    <!-- MENU TRƯỢT PHẲNG TỐI GIẢN (FLAT LIST MENU) -->
     <ScrollView
-        android:layout_width="295dp"
+        android:layout_width="285dp"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        android:background="#ECEFF1"
-        android:scrollbars="vertical">
+        android:background="#FFFFFF"
+        android:scrollbars="none">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="10dp">
+            android:orientation="vertical">
 
-            <!-- Tiêu đề Menu -->
+            <!-- PHẦN HEADER ĐỎ TRẦM (TƯƠNG TỰ ẢNH MẪU) -->
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#C62828"
+                android:paddingTop="24dp"
+                android:paddingBottom="16dp"
+                android:paddingStart="20dp"
+                android:paddingEnd="12dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_alignParentStart="true"
+                    android:layout_centerVertical="true">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="CHỈ HUY TÁC CHIẾN"
+                        android:textColor="#FFFFFF"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="J2 Offline Tracker • LoRa 923"
+                        android:textColor="#FFCDD2"
+                        android:textSize="11sp"
+                        android:layout_marginTop="2dp" />
+                </LinearLayout>
+
+                <!-- Nút Đóng 'X' góc phải Header -->
+                <Button
+                    android:id="@+id/btnCloseMenu"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:text="✕"
+                    android:textSize="14sp"
+                    android:textColor="#FFFFFF"
+                    android:background="?android:attr/selectableItemBackground" />
+            </RelativeLayout>
+
+            <!-- ========================================= -->
+            <!-- PHÂN ĐOÀN 1: VỆT HÀNH TRÌNH & CỜ MỐC     -->
+            <!-- ========================================= -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="BẢNG CHỈ HUY HÀNH QUÂN"
-                android:textColor="#1A237E"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:paddingTop="4dp"
-                android:paddingBottom="10dp" />
-
-            <!-- KHỐI 1: GHI VỆT & CẮM CỜ TÁC CHIẾN -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="#FFFFFF"
-                android:padding="8dp"
-                android:layout_marginBottom="10dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="1. VỆT HÀNH QUÂN &amp; CỜ MỐC"
-                    android:textStyle="bold"
-                    android:textColor="#37474F"
-                    android:textSize="11sp"
-                    android:layout_marginBottom="6dp" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
-
-                    <Button
-                        android:id="@+id/btnStartRecord"
-                        android:layout_width="0dp"
-                        android:layout_height="38dp"
-                        android:layout_weight="1"
-                        android:text="BẮT ĐẦU"
-                        android:textStyle="bold"
-                        android:textSize="11sp"
-                        android:textColor="#FFFFFF"
-                        android:background="#2E7D32"
-                        android:layout_marginEnd="4dp" />
-
-                    <Button
-                        android:id="@+id/btnStopRecord"
-                        android:layout_width="0dp"
-                        android:layout_height="38dp"
-                        android:layout_weight="1.2"
-                        android:text="DỪNG &amp; XUẤT"
-                        android:textStyle="bold"
-                        android:textSize="11sp"
-                        android:textColor="#FFFFFF"
-                        android:background="#C62828"
-                        android:enabled="false"
-                        android:layout_marginStart="4dp" />
-                </LinearLayout>
-
-                <!-- Cụm cắm cờ mốc tức thời -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="6dp">
-
-                    <Button
-                        android:id="@+id/btnFlagYellow"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:text="CỜ VÀNG"
-                        android:textStyle="bold"
-                        android:textSize="11sp"
-                        android:textColor="#FFFFFF"
-                        android:background="#F57F17"
-                        android:layout_marginEnd="3dp" />
-
-                    <Button
-                        android:id="@+id/btnFlagPurple"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:text="CỜ TÍM"
-                        android:textStyle="bold"
-                        android:textSize="11sp"
-                        android:textColor="#FFFFFF"
-                        android:background="#6A1B9A"
-                        android:layout_marginStart="3dp" />
-                </LinearLayout>
-
-                <Button
-                    android:id="@+id/btnClearFlags"
-                    android:layout_width="match_parent"
-                    android:layout_height="34dp"
-                    android:text="XÓA TOÀN BỘ CỜ MỐC"
-                    android:textStyle="bold"
-                    android:textSize="10sp"
-                    android:textColor="#FFFFFF"
-                    android:background="#546E7A"
-                    android:layout_marginTop="6dp" />
-            </LinearLayout>
-
-            <!-- KHỐI 2: DẪN ĐƯỜNG GPX -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="#FFFFFF"
-                android:padding="8dp"
-                android:layout_marginBottom="10dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="2. DẪN ĐƯỜNG LỘ TRÌNH GPX"
-                    android:textStyle="bold"
-                    android:textColor="#37474F"
-                    android:textSize="11sp"
-                    android:layout_marginBottom="6dp" />
-
-                <Button
-                    android:id="@+id/btnLoadFollowGpx"
-                    android:layout_width="match_parent"
-                    android:layout_height="38dp"
-                    android:text="NẠP GPX DẪN ĐƯỜNG"
-                    android:textStyle="bold"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:background="#EF6C00"
-                    android:layout_marginBottom="6dp" />
-
-                <Button
-                    android:id="@+id/btnClearRoute"
-                    android:layout_width="match_parent"
-                    android:layout_height="34dp"
-                    android:text="HỦY LỘ TRÌNH DẪN ĐƯỜNG"
-                    android:textStyle="bold"
-                    android:textSize="10sp"
-                    android:textColor="#FFFFFF"
-                    android:background="#546E7A" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="* Tuyến dạ quang, không vẽ đè vệt di chuyển."
-                    android:textColor="#78909C"
-                    android:textSize="9sp"
-                    android:layout_marginTop="4dp" />
-            </LinearLayout>
-
-            <!-- KHỐI 3: ĐIỀU HÀNH & MỆNH LỆNH LORA -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="#FFFFFF"
-                android:padding="8dp"
-                android:layout_marginBottom="10dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="3. ĐIỀU HÀNH LORA MỘT CHẠM"
-                    android:textStyle="bold"
-                    android:textColor="#37474F"
-                    android:textSize="11sp"
-                    android:layout_marginBottom="6dp" />
-
-                <Button
-                    android:id="@+id/btnCmdStop"
-                    android:layout_width="match_parent"
-                    android:layout_height="38dp"
-                    android:text="DỪNG XE"
-                    android:textStyle="bold"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:background="#D32F2F"
-                    android:layout_marginBottom="4dp" />
-
-                <Button
-                    android:id="@+id/btnCmdResume"
-                    android:layout_width="match_parent"
-                    android:layout_height="38dp"
-                    android:text="TIẾP TỤC HÀNH QUÂN"
-                    android:textStyle="bold"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:background="#388E3C"
-                    android:layout_marginBottom="4dp" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="4dp">
-
-                    <Button
-                        android:id="@+id/btnCmdSpeedUp"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:text="TĂNG TỐC"
-                        android:textStyle="bold"
-                        android:textSize="10sp"
-                        android:textColor="#FFFFFF"
-                        android:background="#1976D2"
-                        android:layout_marginEnd="2dp" />
-
-                    <Button
-                        android:id="@+id/btnCmdSlowDown"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:text="GIẢM TỐC"
-                        android:textStyle="bold"
-                        android:textSize="10sp"
-                        android:textColor="#FFFFFF"
-                        android:background="#F57C00"
-                        android:layout_marginStart="2dp" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="6dp">
-
-                    <Button
-                        android:id="@+id/btnCmdCloseSpacing"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:text="THU CỰ LY"
-                        android:textStyle="bold"
-                        android:textSize="10sp"
-                        android:textColor="#FFFFFF"
-                        android:background="#00796B"
-                        android:layout_marginEnd="2dp" />
-
-                    <Button
-                        android:id="@+id/btnCmdOpenSpacing"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:text="DÃN CỰ LY"
-                        android:textStyle="bold"
-                        android:textSize="10sp"
-                        android:textColor="#FFFFFF"
-                        android:background="#512DA8"
-                        android:layout_marginStart="2dp" />
-                </LinearLayout>
-
-                <Button
-                    android:id="@+id/btnCmdEmergency"
-                    android:layout_width="match_parent"
-                    android:layout_height="40dp"
-                    android:text="TÌNH HUỐNG KHẨN CẤP"
-                    android:textStyle="bold"
-                    android:textSize="11sp"
-                    android:textColor="#FFFFFF"
-                    android:background="#B71C1C" />
-            </LinearLayout>
-
-            <!-- Nút đóng Drawer (Tối giản, chữ trắng) -->
-            <Button
-                android:id="@+id/btnCloseMenu"
-                android:layout_width="match_parent"
-                android:layout_height="36dp"
-                android:text="ĐÓNG MENU"
-                android:textStyle="bold"
+                android:text="HÀNH TRÌNH &amp; MỐC CỜ"
+                android:textColor="#9E9E9E"
                 android:textSize="11sp"
-                android:textColor="#FFFFFF"
-                android:background="#455A64"
-                android:layout_marginBottom="16dp" />
+                android:textStyle="bold"
+                android:paddingStart="20dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="4dp" />
+
+            <Button
+                android:id="@+id/btnStartRecord"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Bắt đầu ghi vệt"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#263238"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#F0F0F0"
+                android:layout_marginStart="20dp" />
+
+            <Button
+                android:id="@+id/btnStopRecord"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Dừng và xuất file GPX"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#263238"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#F0F0F0"
+                android:layout_marginStart="20dp" />
+
+            <Button
+                android:id="@+id/btnFlagYellow"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Cắm cờ vàng (Ghi nhớ)"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#263238"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#F0F0F0"
+                android:layout_marginStart="20dp" />
+
+            <Button
+                android:id="@+id/btnFlagPurple"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Cắm cờ tím (Kiểm tra)"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#263238"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#F0F0F0"
+                android:layout_marginStart="20dp" />
+
+            <Button
+                android:id="@+id/btnClearFlags"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Xóa toàn bộ cờ mốc"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#78909C"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <!-- ========================================= -->
+            <!-- PHÂN ĐOÀN 2: DẪN ĐƯỜNG GPX               -->
+            <!-- ========================================= -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="DẪN ĐƯỜNG LỘ TRÌNH"
+                android:textColor="#9E9E9E"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:paddingStart="20dp"
+                android:paddingTop="16dp"
+                android:paddingBottom="4dp" />
+
+            <Button
+                android:id="@+id/btnLoadFollowGpx"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Nạp lộ trình GPX dẫn đường"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#263238"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#F0F0F0"
+                android:layout_marginStart="20dp" />
+
+            <Button
+                android:id="@+id/btnClearRoute"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Hủy lộ trình dẫn đường"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#78909C"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <!-- ========================================= -->
+            <!-- PHÂN ĐOÀN 3: ĐIỀU HÀNH LORA              -->
+            <!-- ========================================= -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="MỆNH LỆNH TÁC CHIẾN (LORA)"
+                android:textColor="#9E9E9E"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:paddingStart="20dp"
+                android:paddingTop="16dp"
+                android:paddingBottom="4dp" />
+
+            <Button
+                android:id="@+id/btnCmdStop"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Dừng xe"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#263238"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#F0F0F0"
+                android:layout_marginStart="20dp" />
+
+            <Button
+                android:id="@+id/btnCmdResume"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Tiếp tục hành quân"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#263238"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#F0F0F0"
+                android:layout_marginStart="20dp" />
+
+            <Button
+                android:id="@+id/btnCmdSpeedUp"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Tăng tốc"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#263238"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#F0F0F0"
+                android:layout_marginStart="20dp" />
+
+            <Button
+                android:id="@+id/btnCmdSlowDown"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Giảm tốc"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#263238"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#F0F0F0"
+                android:layout_marginStart="20dp" />
+
+            <Button
+                android:id="@+id/btnCmdCloseSpacing"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Thu cự ly"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#263238"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#F0F0F0"
+                android:layout_marginStart="20dp" />
+
+            <Button
+                android:id="@+id/btnCmdOpenSpacing"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Dãn cự ly"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:textColor="#263238"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#F0F0F0"
+                android:layout_marginStart="20dp" />
+
+            <Button
+                android:id="@+id/btnCmdEmergency"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:text="Tình huống khẩn cấp"
+                android:gravity="start|center_vertical"
+                android:paddingStart="20dp"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textAllCaps="false"
+                android:textColor="#C62828"
+                android:background="?android:attr/selectableItemBackground" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="16dp" />
 
         </LinearLayout>
     </ScrollView>
