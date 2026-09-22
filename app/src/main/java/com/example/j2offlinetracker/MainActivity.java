@@ -377,7 +377,14 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private void evaluateConvoySpacing() {
         if (myLastGeoPoint == null || teammateLastGeoPoint == null) return;
 
-        float distance = myLastGeoPoint.distanceToAsFloat(teammateLastGeoPoint);
+        // Tính khoảng cách giữa 2 xe bằng thuật toán gốc Android
+        float[] results = new float[1];
+        Location.distanceBetween(
+                myLastGeoPoint.getLatitude(), myLastGeoPoint.getLongitude(),
+                teammateLastGeoPoint.getLatitude(), teammateLastGeoPoint.getLongitude(),
+                results);
+        float distance = results[0];
+
         tvStats.setText(String.format(Locale.US, "Điểm: %d | Cự ly Xe bạn: %.1fm", dbHelper.getPointCount(), distance));
 
         if (distance > 50.0f) {
