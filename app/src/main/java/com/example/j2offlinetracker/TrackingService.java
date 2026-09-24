@@ -36,20 +36,24 @@ public class TrackingService extends Service implements LocationListener {
     private DatabaseHelper dbHelper;
     private PowerManager.WakeLock wakeLock;
     private Location lastRecordedLocation = null;
+    private Location latestGpsLocation = null;
 
-    // Cờ trạng thái ghi hành trình vào SQLite
     private volatile boolean isRecording = false;
 
-    // Quản lý Bluetooth kết nối ngầm vĩnh viễn & tự kết nối lại
+    // Quản lý kết nối Bluetooth
     private static final String TARGET_BT_NAME = "LoRa_Tactical_Bridge";
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothSocket btSocket;
     private OutputStream btOutputStream;
+
+    // KHÓA ĐỘC LẬP CHUYÊN BIỆT CHO VIỆC GỬI DỮ LIỆU (CHỐNG DEADLOCK 100%)
+    private final Object btWriteLock = new Object();
+
     private Thread btWorkerThread;
+    private Thread telemetryHeartbeatThread;
     private volatile boolean isBtConnected = false;
     private volatile boolean isRunning = true;
-    private long lastBtSendTime = 0;
 
     private SharedPreferences sharedPreferences;
 
@@ -61,7 +65,6 @@ public class TrackingService extends Service implements LocationListener {
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
-        // PARTIAL_WAKE_LOCK: Giữ CPU hoạt động liên tục khi tắt/khóa màn hình
         PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (powerManager != null) {
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "J2Tracker:TacticalWakeLock");
@@ -80,8 +83,11 @@ public class TrackingService extends Service implements LocationListener {
         startForeground(NOTIFICATION_ID, notification);
         startLocationUpdates();
 
-        // Khởi động luồng Auto-Connect & Auto-Reconnect Bluetooth
+        // 1. Luồng tự động quét và duy trì kết nối Bluetooth
         startBluetoothWorker();
+
+        // 2. Luồng nhịp tim: Bơm tọa độ sang LoRa liên tục 1 giây/lần kể cả khi xe đứng yên
+        startTelemetryHeartbeat();
     }
 
     private void createNotificationChannel() {
@@ -117,28 +123,17 @@ public class TrackingService extends Service implements LocationListener {
     public void onLocationChanged(Location location) {
         if (location == null) return;
 
-        // Nới lỏng lọc sai số ban đầu (30m) để bắt tọa độ nhanh nhất
-        if (location.hasAccuracy() && location.getAccuracy() > 30.0f) {
-            return;
-        }
+        // Lưu giữ tọa độ hợp lệ mới nhất
+        latestGpsLocation = location;
 
-        // BẮN BROADCAST CẬP NHẬT VỊ TRÍ XE MÌNH LÊN BẢN ĐỒ
+        // Bắn Broadcast để MainActivity vẽ vị trí xe mình
         Intent intent = new Intent("GPS_LOCATION_UPDATE");
         intent.putExtra("lat", location.getLatitude());
         intent.putExtra("lng", location.getLongitude());
         intent.putExtra("speed", location.getSpeed());
         sendBroadcast(intent);
 
-        // PHÁT TỌA ĐỘ SANG MẠCH LORA MỖI GIÂY (CHẠY HOẶC ĐỖ 0 KM/H ĐỀU PHÁT LIÊN TỤC)
-        if (System.currentTimeMillis() - lastBtSendTime >= 1000) {
-            lastBtSendTime = System.currentTimeMillis();
-            int myVehicleId = sharedPreferences.getInt("CFG_VEHICLE_ID", 1);
-            String posPacket = String.format(Locale.US, "#POS,%d,%.6f,%.6f,%.1f\n",
-                    myVehicleId, location.getLatitude(), location.getLongitude(), location.getSpeed());
-            sendBluetoothData(posPacket);
-        }
-
-        // BỘ LỌC ĐỨNG YÊN CHỈ ÁP DỤNG KHI GHI VẾT VÀO SQLITE
+        // Ghi vào cơ sở dữ liệu nếu đang ở chế độ Ghi hành trình
         if (isRecording) {
             if (lastRecordedLocation != null) {
                 float distance = location.distanceTo(lastRecordedLocation);
@@ -146,12 +141,11 @@ public class TrackingService extends Service implements LocationListener {
                 if (timeDelta <= 0) timeDelta = 1;
 
                 if (distance < 1.0f && location.getSpeed() < 0.3f) {
-                    return; // Đứng yên thì không ghi rác điểm vào cơ sở dữ liệu
+                    return; // Đứng yên thì không ghi rác điểm vào SQLite
                 }
 
-                float speedCheck = distance / timeDelta;
-                if (speedCheck > 35.0f) {
-                    return; // Loại bỏ bước nhảy ảo quá 126 km/h
+                if (distance / timeDelta > 35.0f) {
+                    return; // Bỏ bước nhảy ảo quá 126 km/h
                 }
             }
 
@@ -165,7 +159,30 @@ public class TrackingService extends Service implements LocationListener {
         }
     }
 
-    // --- CƠ CHẾ QUÉT & TỰ ĐỘNG KẾT NỐI LẠI BLUETOOTH (AUTO-RECONNECT) ---
+    // --- LUỒNG NHỊP TIM: BƠM TỌA ĐỘ SANG MẠCH ĐỀU ĐẶN 1 GIÂY/LẦN ---
+    private void startTelemetryHeartbeat() {
+        telemetryHeartbeatThread = new Thread(() -> {
+            while (isRunning) {
+                try {
+                    Thread.sleep(1000);
+                    if (isBtConnected && latestGpsLocation != null) {
+                        int myVehicleId = sharedPreferences.getInt("CFG_VEHICLE_ID", 1);
+                        String posPacket = String.format(Locale.US, "#POS,%d,%.6f,%.6f,%.1f\n",
+                                myVehicleId,
+                                latestGpsLocation.getLatitude(),
+                                latestGpsLocation.getLongitude(),
+                                latestGpsLocation.getSpeed());
+                        sendBluetoothData(posPacket);
+                    }
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        });
+        telemetryHeartbeatThread.start();
+    }
+
+    // --- LUỒNG QUẢN LÝ KẾT NỐI BLUETOOTH (ĐÃ XÓA TỪ KHÓA SYNCHRONIZED GÂY NGHẼN) ---
     private void startBluetoothWorker() {
         if (btWorkerThread != null && btWorkerThread.isAlive()) return;
 
@@ -185,7 +202,7 @@ public class TrackingService extends Service implements LocationListener {
         btWorkerThread.start();
     }
 
-    private synchronized void attemptBluetoothConnect() {
+    private void attemptBluetoothConnect() {
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) return;
 
         BluetoothDevice targetDevice = null;
@@ -210,8 +227,11 @@ public class TrackingService extends Service implements LocationListener {
             bluetoothAdapter.cancelDiscovery();
             btSocket = targetDevice.createRfcommSocketToServiceRecord(SPP_UUID);
             btSocket.connect();
-            btOutputStream = btSocket.getOutputStream();
-            isBtConnected = true;
+
+            synchronized (btWriteLock) {
+                btOutputStream = btSocket.getOutputStream();
+                isBtConnected = true;
+            }
 
             broadcastBtStatus(true, "ĐÃ THÔNG CẦU LORA");
 
@@ -236,14 +256,17 @@ public class TrackingService extends Service implements LocationListener {
                 }
             }
         } catch (Exception e) {
-            // Mạch Heltec tắt hoặc mất sóng
+            // Mạch Heltec tắt hoặc mất sóng ngoài tầm
         } finally {
-            isBtConnected = false;
-            try {
-                if (btSocket != null) btSocket.close();
-            } catch (Exception ignored) {}
-            btSocket = null;
-            btOutputStream = null;
+            synchronized (btWriteLock) {
+                isBtConnected = false;
+                try {
+                    if (btOutputStream != null) btOutputStream.close();
+                    if (btSocket != null) btSocket.close();
+                } catch (Exception ignored) {}
+                btSocket = null;
+                btOutputStream = null;
+            }
             broadcastBtStatus(false, "MẤT KẾT NỐI - ĐANG THỬ LẠI...");
         }
     }
@@ -255,21 +278,22 @@ public class TrackingService extends Service implements LocationListener {
         sendBroadcast(btStatusIntent);
     }
 
+    // GỬI DỮ LIỆU DÙNG RIÊNG KHÓA btWriteLock - TUYỆT ĐỐI KHÔNG BỊ TREO LUỒNG
     public void sendBluetoothData(String data) {
-        if (isBtConnected && btOutputStream != null) {
-            new Thread(() -> {
-                try {
-                    synchronized (this) {
-                        if (btOutputStream != null) {
-                            btOutputStream.write(data.getBytes());
-                            btOutputStream.flush();
-                        }
+        if (!isBtConnected) return;
+
+        new Thread(() -> {
+            synchronized (btWriteLock) {
+                if (isBtConnected && btOutputStream != null) {
+                    try {
+                        btOutputStream.write(data.getBytes());
+                        btOutputStream.flush();
+                    } catch (Exception e) {
+                        isBtConnected = false;
                     }
-                } catch (Exception e) {
-                    isBtConnected = false;
                 }
-            }).start();
-        }
+            }
+        }).start();
     }
 
     @Override
@@ -295,11 +319,12 @@ public class TrackingService extends Service implements LocationListener {
                 locationManager.removeUpdates(this);
             } catch (SecurityException ignored) {}
         }
-        isBtConnected = false;
-        try {
-            if (btSocket != null) btSocket.close();
-        } catch (Exception ignored) {}
-
+        synchronized (btWriteLock) {
+            isBtConnected = false;
+            try {
+                if (btSocket != null) btSocket.close();
+            } catch (Exception ignored) {}
+        }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
         }
