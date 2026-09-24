@@ -37,14 +37,18 @@ public class TrackingService extends Service implements LocationListener {
     private PowerManager.WakeLock wakeLock;
     private Location lastRecordedLocation = null;
 
-    // Quản lý Bluetooth kết nối ngầm vĩnh viễn
+    // Cờ trạng thái ghi hành trình vào SQLite
+    private volatile boolean isRecording = false;
+
+    // Quản lý Bluetooth kết nối ngầm vĩnh viễn & tự kết nối lại
     private static final String TARGET_BT_NAME = "LoRa_Tactical_Bridge";
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothSocket btSocket;
     private OutputStream btOutputStream;
-    private Thread btConnectThread;
+    private Thread btWorkerThread;
     private volatile boolean isBtConnected = false;
+    private volatile boolean isRunning = true;
     private long lastBtSendTime = 0;
 
     private SharedPreferences sharedPreferences;
@@ -57,7 +61,7 @@ public class TrackingService extends Service implements LocationListener {
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
-        // Giữ CPU luôn thức khi tắt/khóa màn hình
+        // PARTIAL_WAKE_LOCK: Giữ CPU hoạt động liên tục khi khóa màn hình
         PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (powerManager != null) {
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "J2Tracker:TacticalWakeLock");
@@ -67,7 +71,7 @@ public class TrackingService extends Service implements LocationListener {
         createNotificationChannel();
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Hệ thống định vị & Cầu LoRa")
-                .setContentText("Duy trì kết nối vô tuyến và GPS liên tục...")
+                .setContentText("Duy trì kết nối vô tuyến và giám sát đội hình 24/24...")
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setOngoing(true)
@@ -76,15 +80,15 @@ public class TrackingService extends Service implements LocationListener {
         startForeground(NOTIFICATION_ID, notification);
         startLocationUpdates();
 
-        // Khởi động luồng Bluetooth ngầm trong Service
-        startBluetoothConnection();
+        // Khởi động luồng Auto-Connect & Auto-Reconnect Bluetooth
+        startBluetoothWorker();
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "GPS Offline Service",
+                    "GPS Offline Tactical Service",
                     NotificationManager.IMPORTANCE_HIGH
             );
             NotificationManager manager = getSystemService(NotificationManager.class);
@@ -113,7 +117,8 @@ public class TrackingService extends Service implements LocationListener {
     public void onLocationChanged(Location location) {
         if (location == null) return;
 
-        if (location.hasAccuracy() && location.getAccuracy() > 12.0f) {
+        // Lọc nhiễu tọa độ ban đầu
+        if (location.hasAccuracy() && location.getAccuracy() > 15.0f) {
             return;
         }
 
@@ -122,33 +127,36 @@ public class TrackingService extends Service implements LocationListener {
             long timeDelta = (location.getTime() - lastRecordedLocation.getTime()) / 1000;
             if (timeDelta <= 0) timeDelta = 1;
 
-            if (distance < 1.5f && location.getSpeed() < 0.3f) {
+            if (distance < 1.0f && location.getSpeed() < 0.3f) {
                 return;
             }
 
             float speedCheck = distance / timeDelta;
             if (speedCheck > 35.0f) {
-                return;
+                return; // Loại trừ bước nhảy ảo quá 126 km/h
             }
         }
 
         lastRecordedLocation = location;
 
-        dbHelper.insertPoint(
-                location.getLatitude(),
-                location.getLongitude(),
-                location.getSpeed(),
-                location.getTime()
-        );
+        // CHỈ LƯU VÀO CƠ SỞ DỮ LIỆU KHI Ở CHẾ ĐỘ BẮT ĐẦU GHI
+        if (isRecording) {
+            dbHelper.insertPoint(
+                    location.getLatitude(),
+                    location.getLongitude(),
+                    location.getSpeed(),
+                    location.getTime()
+            );
+        }
 
-        // Phát broadcast cập nhật giao diện nếu màn hình đang mở
+        // Bắn Broadcast để cập nhật giao diện MainActivity nếu đang mở
         Intent intent = new Intent("GPS_LOCATION_UPDATE");
         intent.putExtra("lat", location.getLatitude());
         intent.putExtra("lng", location.getLongitude());
         intent.putExtra("speed", location.getSpeed());
         sendBroadcast(intent);
 
-        // TỰ ĐỘNG BẮN TỌA ĐỘ SANG LORA NGAY CẢ KHI TẮT MÀN HÌNH HOẶC ẤN HOME
+        // ĐỊNH KỲ 1 GIÂY: BẮN GÓI TIN #POS SANG LORA KỂ CẢ KHI TẮT MÀN HÌNH
         if (System.currentTimeMillis() - lastBtSendTime > 1000) {
             lastBtSendTime = System.currentTimeMillis();
             int myVehicleId = sharedPreferences.getInt("CFG_VEHICLE_ID", 1);
@@ -158,11 +166,32 @@ public class TrackingService extends Service implements LocationListener {
         }
     }
 
-    private void startBluetoothConnection() {
+    // --- CƠ CHẾ TỰ ĐỘNG QUÉT & TỰ ĐỘNG THỬ LẠI KẾT NỐI (AUTO-RECONNECT) ---
+    private void startBluetoothWorker() {
+        if (btWorkerThread != null && btWorkerThread.isAlive()) return;
+
+        isRunning = true;
+        btWorkerThread = new Thread(() -> {
+            while (isRunning) {
+                if (!isBtConnected) {
+                    attemptBluetoothConnect();
+                }
+                try {
+                    // Chờ 3 giây trước lần quét/thử lại tiếp theo nếu mất kết nối
+                    Thread.sleep(3000);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        });
+        btWorkerThread.start();
+    }
+
+    private synchronized void attemptBluetoothConnect() {
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) return;
 
-        btConnectThread = new Thread(() -> {
-            BluetoothDevice targetDevice = null;
+        BluetoothDevice targetDevice = null;
+        try {
             Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
             if (pairedDevices != null) {
                 for (BluetoothDevice device : pairedDevices) {
@@ -172,54 +201,72 @@ public class TrackingService extends Service implements LocationListener {
                     }
                 }
             }
+        } catch (Exception ignored) {}
 
-            if (targetDevice == null) return;
+        if (targetDevice == null) {
+            broadcastBtStatus(false, "CHƯA GHÉP ĐÔI MẠCH LORA");
+            return;
+        }
 
-            try {
-                bluetoothAdapter.cancelDiscovery();
-                btSocket = targetDevice.createRfcommSocketToServiceRecord(SPP_UUID);
-                btSocket.connect();
-                btOutputStream = btSocket.getOutputStream();
-                isBtConnected = true;
+        try {
+            bluetoothAdapter.cancelDiscovery();
+            btSocket = targetDevice.createRfcommSocketToServiceRecord(SPP_UUID);
+            btSocket.connect();
+            btOutputStream = btSocket.getOutputStream();
+            isBtConnected = true;
 
-                // Báo cho MainActivity biết đã thông cầu Bluetooth
-                Intent btStatusIntent = new Intent("LORA_BT_STATUS");
-                btStatusIntent.putExtra("connected", true);
-                sendBroadcast(btStatusIntent);
+            broadcastBtStatus(true, "ĐÃ THÔNG CẦU LORA");
 
-                BufferedReader reader = new BufferedReader(new InputStreamReader(btSocket.getInputStream()));
-                String line;
-                while (isBtConnected && (line = reader.readLine()) != null) {
-                    final String receivedPacket = line.trim();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(btSocket.getInputStream()));
+            String line;
+            while (isBtConnected && isRunning && (line = reader.readLine()) != null) {
+                final String receivedPacket = line.trim();
+                if (receivedPacket.isEmpty()) continue;
 
-                    if (receivedPacket.startsWith("#POS")) {
-                        // Nhận vị trí xe đồng đội dội về từ LoRa
-                        Intent posIntent = new Intent("LORA_POS_RECEIVED");
-                        posIntent.putExtra("raw", receivedPacket);
-                        sendBroadcast(posIntent);
-                    } else if (receivedPacket.startsWith("#CMD")) {
-                        // Nhận lệnh chiến thuật
-                        Intent cmdIntent = new Intent("LORA_CMD_RECEIVED");
-                        cmdIntent.putExtra("raw", receivedPacket);
-                        sendBroadcast(cmdIntent);
-                    }
+                if (receivedPacket.startsWith("#POS")) {
+                    Intent posIntent = new Intent("LORA_POS_RECEIVED");
+                    posIntent.putExtra("raw", receivedPacket);
+                    sendBroadcast(posIntent);
+                } else if (receivedPacket.startsWith("#CMD")) {
+                    Intent cmdIntent = new Intent("LORA_CMD_RECEIVED");
+                    cmdIntent.putExtra("raw", receivedPacket);
+                    sendBroadcast(cmdIntent);
+                } else if (receivedPacket.startsWith("#ACK")) {
+                    Intent ackIntent = new Intent("LORA_ACK_RECEIVED");
+                    ackIntent.putExtra("raw", receivedPacket);
+                    sendBroadcast(ackIntent);
                 }
-            } catch (Exception e) {
-                isBtConnected = false;
-                try {
-                    if (btSocket != null) btSocket.close();
-                } catch (Exception ignored) {}
             }
-        });
-        btConnectThread.start();
+        } catch (Exception e) {
+            // Rớt kết nối hoặc mạch Heltec chưa bật
+        } finally {
+            isBtConnected = false;
+            try {
+                if (btSocket != null) btSocket.close();
+            } catch (Exception ignored) {}
+            btSocket = null;
+            btOutputStream = null;
+            broadcastBtStatus(false, "MẤT KẾT NỐI - ĐANG THỬ LẠI...");
+        }
+    }
+
+    private void broadcastBtStatus(boolean connected, String message) {
+        Intent btStatusIntent = new Intent("LORA_BT_STATUS");
+        btStatusIntent.putExtra("connected", connected);
+        btStatusIntent.putExtra("status_text", message);
+        sendBroadcast(btStatusIntent);
     }
 
     public void sendBluetoothData(String data) {
         if (isBtConnected && btOutputStream != null) {
             new Thread(() -> {
                 try {
-                    btOutputStream.write(data.getBytes());
-                    btOutputStream.flush();
+                    synchronized (this) {
+                        if (btOutputStream != null) {
+                            btOutputStream.write(data.getBytes());
+                            btOutputStream.flush();
+                        }
+                    }
                 } catch (Exception e) {
                     isBtConnected = false;
                 }
@@ -229,10 +276,16 @@ public class TrackingService extends Service implements LocationListener {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // Nhận lệnh phát từ giao diện MainActivity (ví dụ: bấm nút MỆNH LỆNH)
-        if (intent != null && intent.hasExtra("SEND_LORA_PACKET")) {
-            String packet = intent.getStringExtra("SEND_LORA_PACKET");
-            sendBluetoothData(packet);
+        if (intent != null) {
+            // Điều khiển trạng thái ghi vào cơ sở dữ liệu
+            if (intent.hasExtra("CMD_SET_RECORDING")) {
+                this.isRecording = intent.getBooleanExtra("CMD_SET_RECORDING", false);
+            }
+            // Nhận mệnh lệnh tác chiến từ MainActivity bắn sang mạch Heltec
+            if (intent.hasExtra("SEND_LORA_PACKET")) {
+                String packet = intent.getStringExtra("SEND_LORA_PACKET");
+                sendBluetoothData(packet);
+            }
         }
         return START_STICKY;
     }
@@ -240,6 +293,7 @@ public class TrackingService extends Service implements LocationListener {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        isRunning = false;
         if (locationManager != null) {
             try {
                 locationManager.removeUpdates(this);
