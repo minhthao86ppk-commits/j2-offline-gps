@@ -1,10 +1,6 @@
 package com.example.j2offlinetracker;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothSocket;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -16,7 +12,6 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.Path;
 import android.graphics.drawable.BitmapDrawable;
 import android.location.Location;
 import android.location.LocationListener;
@@ -24,7 +19,6 @@ import android.location.LocationManager;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Vibrator;
@@ -53,128 +47,120 @@ import org.osmdroid.views.overlay.Marker;
 import org.osmdroid.views.overlay.Polyline;
 import org.xmlpull.v1.XmlPullParser;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity implements LocationListener {
 
     private static final int PERMISSION_REQUEST_CODE = 200;
-    private static final float CONVOY_SPACING_LIMIT_METERS = 50.0f; // Ngưỡng cảnh báo: 50m[cite: 4]
+    private static final float CONVOY_SPACING_LIMIT_METERS = 50.0f;
 
-    // Chế độ vận hành[cite: 4]
     private static final int MODE_STANDBY = 0;
     private static final int MODE_RECORDING = 1;
     private static final int MODE_FOLLOW_ROUTE = 2;
 
     private int currentMode = MODE_STANDBY;
     private boolean isFirstGpsFix = true;
-    private boolean isWaitingFirstStartPoint = false;
 
-    // Định danh xe tác chiến[cite: 4]
     private int myVehicleId = 1;
     private int teammateId = 2;
     private SharedPreferences sharedPreferences;
 
-    // Giao diện
     private DrawerLayout drawerLayout;
     private MapView mapView;
     private TextView tvQuickStatus, tvStats;
     private Button btnOpenMenu, btnCloseMenu;
     private Button btnStartRecord, btnStopRecord;
-    private Button btnFlagYellow, btnFlagPurple, btnClearFlags;
     private Button btnLoadFollowGpx, btnClearRoute;
 
-    // Cụm 7 nút lệnh tác chiến LoRa[cite: 4]
     private Button btnCmdStop, btnCmdResume, btnCmdSpeedUp, btnCmdSlowDown;
     private Button btnCmdCloseSpacing, btnCmdOpenSpacing, btnCmdEmergency;
 
-    // Lớp vẽ bản đồ & Marker xe[cite: 4]
     private Polyline trackLine;
     private Polyline plannedGpxLine;
     private Marker currentMarker;
     private Marker teammateMarker;
 
-    // Quản lý Cờ mốc Chế độ 1 (Ghi thực tế)[cite: 4]
-    private Marker startFlagMarker;
-    private Marker finishFlagMarker;
-    private final List<Marker> tacticalFlagMarkers = new ArrayList<>();
-
-    // Quản lý Cờ mốc nạp từ GPX Chế độ 2 (Dẫn đường)
-    private final List<Marker> plannedFlagMarkers = new ArrayList<>();
-
-    // Quản lý vị trí & Giám sát cự ly
     private GeoPoint myCurrentPoint = null;
     private GeoPoint teammatePoint = null;
     private float teammateSpeed = 0.0f;
     private long lastSpacingAlertTime = 0;
 
-    // Cảm biến & CSDL
     private DatabaseHelper dbHelper;
     private LocationManager locationManager;
     private Vibrator vibrator;
     private Ringtone alertRingtone;
     private Ringtone warningBeep;
 
-    // Kết nối LoRa qua Bluetooth Classic SPP[cite: 4]
-    private static final String TARGET_BT_NAME = "LoRa_Tactical_Bridge";
-    private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
-    private BluetoothAdapter bluetoothAdapter;
-    private BluetoothSocket btSocket;
-    private OutputStream btOutputStream;
-    private Thread btConnectThread;
-    private volatile boolean isBtConnected = false;
-    private long lastBtSendTime = 0;
-
-    // Bộ thu nhận tọa độ ngầm từ TrackingService[cite: 4]
-    private final BroadcastReceiver locationReceiver = new BroadcastReceiver() {
+    // Bộ thu nhận sự kiện từ TrackingService
+    private final BroadcastReceiver serviceReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            double lat = intent.getDoubleExtra("lat", 0.0);
-            double lng = intent.getDoubleExtra("lng", 0.0);
-            float speed = intent.getFloatExtra("speed", 0.0f);
+            String action = intent.getAction();
+            if (action == null) return;
 
-            myCurrentPoint = new GeoPoint(lat, lng);
-            currentMarker.setPosition(myCurrentPoint);
-            currentMarker.setVisible(true);
+            if ("GPS_LOCATION_UPDATE".equals(action)) {
+                double lat = intent.getDoubleExtra("lat", 0.0);
+                double lng = intent.getDoubleExtra("lng", 0.0);
+                myCurrentPoint = new GeoPoint(lat, lng);
+                currentMarker.setPosition(myCurrentPoint);
+                currentMarker.setVisible(true);
 
-            // Cắm cờ xuất phát tại điểm nhận đầu tiên nếu vừa bấm bắt đầu ghi[cite: 4]
-            if (isWaitingFirstStartPoint && currentMode == MODE_RECORDING) {
-                startFlagMarker.setPosition(myCurrentPoint);
-                startFlagMarker.setVisible(true);
-                isWaitingFirstStartPoint = false;
+                if (currentMode == MODE_RECORDING) {
+                    trackLine.addPoint(myCurrentPoint);
+                    tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm\nTọa độ: %.5f, %.5f", dbHelper.getPointCount(), lat, lng));
+                } else if (currentMode == MODE_FOLLOW_ROUTE) {
+                    mapView.getController().animateTo(myCurrentPoint);
+                }
+                evaluateConvoySpacing();
+                mapView.invalidate();
+            } 
+            else if ("LORA_BT_STATUS".equals(action)) {
+                boolean connected = intent.getBooleanExtra("connected", false);
+                if (connected) {
+                    tvQuickStatus.setText("LoRa: ĐÃ THÔNG CẦU NỐI");
+                }
+            } 
+            else if ("LORA_POS_RECEIVED".equals(action)) {
+                String raw = intent.getStringExtra("raw");
+                if (raw != null && raw.startsWith("#POS")) {
+                    String[] parts = raw.split(",");
+                    if (parts.length >= 5) {
+                        try {
+                            int senderId = Integer.parseInt(parts[1].trim());
+                            if (senderId != myVehicleId) {
+                                double rLat = Double.parseDouble(parts[2].trim());
+                                double rLng = Double.parseDouble(parts[3].trim());
+                                teammateSpeed = Float.parseFloat(parts[4].trim());
+                                teammatePoint = new GeoPoint(rLat, rLng);
+
+                                teammateMarker.setPosition(teammatePoint);
+                                teammateMarker.setVisible(true);
+                                evaluateConvoySpacing();
+                                mapView.invalidate();
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }
+            } 
+            else if ("LORA_CMD_RECEIVED".equals(action)) {
+                String raw = intent.getStringExtra("raw");
+                if (raw != null && raw.startsWith("#CMD")) {
+                    String[] parts = raw.split(",");
+                    if (parts.length >= 4) {
+                        showCommandAlert("XE " + parts[1], parts[3]);
+                    }
+                }
             }
-
-            if (currentMode == MODE_RECORDING) {
-                trackLine.addPoint(myCurrentPoint);
-                tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm\nTọa độ: %.5f, %.5f", dbHelper.getPointCount(), lat, lng));
-            } else if (currentMode == MODE_FOLLOW_ROUTE) {
-                // Tuyệt đối không vẽ vệt đè lên bản đồ khi bám GPX[cite: 4]
-                mapView.getController().animateTo(myCurrentPoint);
-            }
-
-            evaluateConvoySpacing();
-
-            // Định kỳ 1 giây: Gửi gói #POS qua LoRa[cite: 4]
-            if (System.currentTimeMillis() - lastBtSendTime > 1000) {
-                lastBtSendTime = System.currentTimeMillis();
-                String posPacket = String.format(Locale.US, "#POS,%d,%.6f,%.6f,%.1f\n", myVehicleId, lat, lng, speed);
-                sendBluetoothData(posPacket);
-            }
-
-            mapView.invalidate();
         }
     };
 
@@ -194,7 +180,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         dbHelper = new DatabaseHelper(this);
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
         Uri alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
         if (alarmUri == null) alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
@@ -210,13 +195,14 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         updateRoleDisplay();
         checkPermissionsAndInit();
 
-        // Chống bấm nhầm: Nhấn giữ thanh trạng thái để chọn vai trò[cite: 4]
         tvQuickStatus.setOnLongClickListener(v -> {
             showRoleSelectionDialog();
             return true;
         });
 
-        startBluetoothConnection();
+        // Khởi động TrackingService ngay khi mở app để tự kết nối Bluetooth
+        Intent sIntent = new Intent(this, TrackingService.class);
+        ContextCompat.startForegroundService(this, sIntent);
     }
 
     private void initViews() {
@@ -228,9 +214,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         btnCloseMenu = findViewById(R.id.btnCloseMenu);
         btnStartRecord = findViewById(R.id.btnStartRecord);
         btnStopRecord = findViewById(R.id.btnStopRecord);
-        btnFlagYellow = findViewById(R.id.btnFlagYellow);
-        btnFlagPurple = findViewById(R.id.btnFlagPurple);
-        btnClearFlags = findViewById(R.id.btnClearFlags);
         btnLoadFollowGpx = findViewById(R.id.btnLoadFollowGpx);
         btnClearRoute = findViewById(R.id.btnClearRoute);
 
@@ -247,15 +230,13 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         mapView.setMultiTouchControls(true);
         mapView.setUseDataConnection(false);
 
-        // Tuyến GPX dẫn đường: Xanh lục dạ quang (#0EDA4B)[cite: 4]
         plannedGpxLine = new Polyline(mapView);
-        plannedGpxLine.setColor(Color.parseColor("#0EDA4B"));
+        plannedGpxLine.setColor(Color.parseColor("#E91E63"));
         plannedGpxLine.setWidth(9.0f);
         plannedGpxLine.getOutlinePaint().setStrokeJoin(Paint.Join.ROUND);
         plannedGpxLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
         mapView.getOverlays().add(plannedGpxLine);
 
-        // Vệt thực tế: Xanh đậm (#003399)[cite: 4]
         trackLine = new Polyline(mapView);
         trackLine.setColor(Color.parseColor("#003399"));
         trackLine.setWidth(7.0f);
@@ -263,23 +244,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         trackLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
         mapView.getOverlays().add(trackLine);
 
-        // Cờ Xuất phát Chế độ 1: Xanh lá trơn[cite: 4]
-        startFlagMarker = new Marker(mapView);
-        startFlagMarker.setAnchor(22f / 72f, 66f / 72f);
-        startFlagMarker.setIcon(createTacticalFlagIcon(Color.parseColor("#00C853")));
-        startFlagMarker.setTitle("XUẤT PHÁT");
-        startFlagMarker.setVisible(false);
-        mapView.getOverlays().add(startFlagMarker);
-
-        // Cờ Đích đến Chế độ 1: Đỏ trơn (mặc định ẩn)[cite: 4]
-        finishFlagMarker = new Marker(mapView);
-        finishFlagMarker.setAnchor(22f / 72f, 66f / 72f);
-        finishFlagMarker.setIcon(createTacticalFlagIcon(Color.parseColor("#D50000")));
-        finishFlagMarker.setTitle("ĐÍCH ĐẾN");
-        finishFlagMarker.setVisible(false);
-        mapView.getOverlays().add(finishFlagMarker);
-
-        // Con trỏ vị trí xe mình[cite: 4]
         currentMarker = new Marker(mapView);
         currentMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
         currentMarker.setIcon(createVehicleDot(myVehicleId == 1 ? Color.parseColor("#007AFF") : Color.parseColor("#00C853")));
@@ -287,7 +251,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         currentMarker.setVisible(false);
         mapView.getOverlays().add(currentMarker);
 
-        // Con trỏ xe đồng đội qua LoRa[cite: 4]
         teammateMarker = new Marker(mapView);
         teammateMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
         teammateMarker.setIcon(createVehicleDot(Color.parseColor("#FF9100")));
@@ -298,54 +261,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         GeoPoint centerPoint = new GeoPoint(21.135, 105.505);
         mapView.getController().setZoom(14.0);
         mapView.getController().setCenter(centerPoint);
-    }
-
-    // Vẽ cờ tác chiến đuôi nheo bằng Canvas: CỜ TRƠN HOÀN TOÀN, KHÔNG CHỮ / ICON[cite: 4]
-    private BitmapDrawable createTacticalFlagIcon(int flagColor) {
-        int width = 72;
-        int height = 72;
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-
-        float poleX = 22f;
-
-        // Cột cờ[cite: 4]
-        paint.setColor(Color.parseColor("#263238"));
-        paint.setStrokeWidth(4.5f);
-        paint.setStyle(Paint.Style.STROKE);
-        canvas.drawLine(poleX, 8f, poleX, 66f, paint);
-
-        // Đỉnh cột mạ vàng[cite: 4]
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.parseColor("#FFD600"));
-        canvas.drawCircle(poleX, 8f, 4.5f, paint);
-
-        // Chân đế[cite: 4]
-        paint.setColor(Color.parseColor("#212121"));
-        canvas.drawCircle(poleX, 66f, 5.5f, paint);
-
-        // Thân cờ đuôi nheo[cite: 4]
-        Path flagPath = new Path();
-        flagPath.moveTo(poleX, 10f);
-        flagPath.lineTo(poleX + 46f, 10f);
-        flagPath.lineTo(poleX + 38f, 26f);
-        flagPath.lineTo(poleX + 46f, 42f);
-        flagPath.lineTo(poleX, 42f);
-        flagPath.close();
-
-        // Đổ màu cờ[cite: 4]
-        paint.setColor(flagColor);
-        paint.setStyle(Paint.Style.FILL);
-        canvas.drawPath(flagPath, paint);
-
-        // Viền cờ màu trắng[cite: 4]
-        paint.setColor(Color.WHITE);
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(2f);
-        canvas.drawPath(flagPath, paint);
-
-        return new BitmapDrawable(getResources(), bitmap);
     }
 
     private BitmapDrawable createVehicleDot(int coreColor) {
@@ -394,11 +309,8 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 .show();
     }
 
-    // --- GIÁM SÁT CỰ LY ĐỘI HÌNH VÀ BÁO ĐỘNG > 50M ---[cite: 4]
     private void evaluateConvoySpacing() {
-        if (myCurrentPoint == null || teammatePoint == null) {
-            return;
-        }
+        if (myCurrentPoint == null || teammatePoint == null) return;
 
         float[] results = new float[1];
         Location.distanceBetween(
@@ -425,105 +337,9 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         if (now - lastSpacingAlertTime > 6000) {
             lastSpacingAlertTime = now;
             try {
-                if (vibrator != null) {
-                    vibrator.vibrate(new long[]{0, 300, 150, 300}, -1);
-                }
-                if (warningBeep != null && !warningBeep.isPlaying()) {
-                    warningBeep.play();
-                }
+                if (vibrator != null) vibrator.vibrate(new long[]{0, 300, 150, 300}, -1);
+                if (warningBeep != null && !warningBeep.isPlaying()) warningBeep.play();
             } catch (Exception ignored) {}
-        }
-    }
-
-    // --- KẾT NỐI BLUETOOTH & BÓC TÁCH GÓI TIN ĐA XE ---[cite: 4]
-    @SuppressLint("MissingPermission")
-    private void startBluetoothConnection() {
-        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) return;
-
-        btConnectThread = new Thread(() -> {
-            BluetoothDevice targetDevice = null;
-            Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
-            if (pairedDevices != null) {
-                for (BluetoothDevice device : pairedDevices) {
-                    if (TARGET_BT_NAME.equalsIgnoreCase(device.getName())) {
-                        targetDevice = device;
-                        break;
-                    }
-                }
-            }
-
-            if (targetDevice == null) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Chưa ghép đôi LoRa_Tactical_Bridge!", Toast.LENGTH_SHORT).show());
-                return;
-            }
-
-            try {
-                bluetoothAdapter.cancelDiscovery();
-                btSocket = targetDevice.createRfcommSocketToServiceRecord(SPP_UUID);
-                btSocket.connect();
-                btOutputStream = btSocket.getOutputStream();
-                isBtConnected = true;
-
-                runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this, "Đã kết nối cầu LoRa!", Toast.LENGTH_SHORT).show();
-                    updateRoleDisplay();
-                });
-
-                BufferedReader reader = new BufferedReader(new InputStreamReader(btSocket.getInputStream()));
-                String line;
-                while (isBtConnected && (line = reader.readLine()) != null) {
-                    final String receivedPacket = line.trim();
-
-                    if (receivedPacket.startsWith("#POS")) {
-                        String[] parts = receivedPacket.split(",");
-                        if (parts.length >= 5) {
-                            try {
-                                int senderId = Integer.parseInt(parts[1].trim());
-                                if (senderId != myVehicleId) {
-                                    double rLat = Double.parseDouble(parts[2].trim());
-                                    double rLng = Double.parseDouble(parts[3].trim());
-                                    float rSpeed = Float.parseFloat(parts[4].trim());
-
-                                    runOnUiThread(() -> {
-                                        teammatePoint = new GeoPoint(rLat, rLng);
-                                        teammateSpeed = rSpeed;
-                                        teammateMarker.setPosition(teammatePoint);
-                                        teammateMarker.setVisible(true);
-                                        evaluateConvoySpacing();
-                                        mapView.invalidate();
-                                    });
-                                }
-                            } catch (Exception ignored) {}
-                        }
-                    } else if (receivedPacket.startsWith("#CMD")) {
-                        String[] parts = receivedPacket.split(",");
-                        if (parts.length >= 4) {
-                            String sender = "XE " + parts[1];
-                            String cmdDesc = parts[3];
-                            showCommandAlert(sender, cmdDesc);
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                isBtConnected = false;
-                try {
-                    if (btSocket != null) btSocket.close();
-                } catch (Exception ignored) {}
-            }
-        });
-        btConnectThread.start();
-    }
-
-    private void sendBluetoothData(String data) {
-        if (isBtConnected && btOutputStream != null) {
-            new Thread(() -> {
-                try {
-                    btOutputStream.write(data.getBytes());
-                    btOutputStream.flush();
-                } catch (IOException e) {
-                    isBtConnected = false;
-                }
-            }).start();
         }
     }
 
@@ -540,7 +356,11 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private void sendTacticalCommand(String cmdCode, String cmdDescription) {
         drawerLayout.closeDrawer(GravityCompat.START);
         String packet = String.format(Locale.US, "#CMD,%d,%s,%s\n", myVehicleId, cmdCode, cmdDescription);
-        sendBluetoothData(packet);
+
+        // Bắn gói tin sang TrackingService để phát đi
+        Intent intent = new Intent(this, TrackingService.class);
+        intent.putExtra("SEND_LORA_PACKET", packet);
+        startService(intent);
 
         tvQuickStatus.setText("ĐÃ PHÁT: " + cmdDescription);
         Toast.makeText(this, "Đã phát lệnh LoRa: " + cmdDescription, Toast.LENGTH_SHORT).show();
@@ -549,10 +369,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     public void showCommandAlert(String senderName, String commandText) {
         try {
             if (alertRingtone != null && !alertRingtone.isPlaying()) alertRingtone.play();
-            if (vibrator != null) {
-                long[] pattern = {0, 600, 300, 600, 300};
-                vibrator.vibrate(pattern, 0);
-            }
+            if (vibrator != null) vibrator.vibrate(new long[]{0, 600, 300, 600, 300}, -1);
         } catch (Exception ignored) {}
 
         runOnUiThread(() -> {
@@ -564,7 +381,10 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                         if (alertRingtone != null && alertRingtone.isPlaying()) alertRingtone.stop();
                         if (vibrator != null) vibrator.cancel();
                         tvQuickStatus.setText("LỆNH: " + commandText);
-                        sendBluetoothData(String.format(Locale.US, "#ACK,%d,RECEIVED\n", myVehicleId));
+                        
+                        Intent intent = new Intent(this, TrackingService.class);
+                        intent.putExtra("SEND_LORA_PACKET", String.format(Locale.US, "#ACK,%d,RECEIVED\n", myVehicleId));
+                        startService(intent);
                     })
                     .show();
         });
@@ -608,77 +428,19 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
             stopModeRecordAndExport();
         });
 
-        // 1. CẮM CỜ VÀNG (GHI NHỚ): CỜ TRƠN KHÔNG CHỮ
-        btnFlagYellow.setOnClickListener(v -> {
-            drawerLayout.closeDrawer(GravityCompat.START);
-            if (myCurrentPoint != null) {
-                Marker flag = new Marker(mapView);
-                flag.setPosition(myCurrentPoint);
-                flag.setAnchor(22f / 72f, 66f / 72f);
-                flag.setIcon(createTacticalFlagIcon(Color.parseColor("#F57F17")));
-                flag.setTitle("GHI NHỚ");
-                flag.setInfoWindow(null);
-                mapView.getOverlays().add(flag);
-                tacticalFlagMarkers.add(flag);
-                mapView.invalidate();
-                Toast.makeText(this, "Đã cắm Cờ Vàng (Ghi nhớ)", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "Chưa có GPS!", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        // 2. CẮM CỜ TÍM (KIỂM TRA): CỜ TRƠN KHÔNG CHỮ
-        btnFlagPurple.setOnClickListener(v -> {
-            drawerLayout.closeDrawer(GravityCompat.START);
-            if (myCurrentPoint != null) {
-                Marker flag = new Marker(mapView);
-                flag.setPosition(myCurrentPoint);
-                flag.setAnchor(22f / 72f, 66f / 72f);
-                flag.setIcon(createTacticalFlagIcon(Color.parseColor("#7B1FA2")));
-                flag.setTitle("KIỂM TRA");
-                flag.setInfoWindow(null);
-                mapView.getOverlays().add(flag);
-                tacticalFlagMarkers.add(flag);
-                mapView.invalidate();
-                Toast.makeText(this, "Đã cắm Cờ Tím (Kiểm tra)", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "Chưa có GPS!", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        // 3. XÓA TOÀN BỘ CỜ MỐC CHẾ ĐỘ 1
-        btnClearFlags.setOnClickListener(v -> {
-            drawerLayout.closeDrawer(GravityCompat.START);
-            for (Marker m : tacticalFlagMarkers) {
-                mapView.getOverlays().remove(m);
-            }
-            tacticalFlagMarkers.clear();
-            mapView.invalidate();
-            Toast.makeText(this, "Đã xóa toàn bộ cờ mốc", Toast.LENGTH_SHORT).show();
-        });
-
         btnLoadFollowGpx.setOnClickListener(v -> pickGpxForNavigation());
 
-        // HỦY LỘ TRÌNH DẪN ĐƯỜNG: XÓA ĐƯỜNG GPX VÀ TOÀN BỘ CỜ DẪN ĐƯỜNG
         btnClearRoute.setOnClickListener(v -> {
             plannedGpxLine.getActualPoints().clear();
-            for (Marker m : plannedFlagMarkers) {
-                mapView.getOverlays().remove(m);
-            }
-            plannedFlagMarkers.clear();
-
+            trackLine.getActualPoints().clear();
             currentMode = MODE_STANDBY;
             updateRoleDisplay();
             mapView.invalidate();
             drawerLayout.closeDrawer(GravityCompat.START);
-
-            Intent intent = new Intent(this, TrackingService.class);
-            stopService(intent);
-            Toast.makeText(this, "Đã hủy lộ trình & cờ dẫn đường", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Đã xóa lộ trình hành quân", Toast.LENGTH_SHORT).show();
         });
     }
 
-    // --- BẮT ĐẦU GHI HÀNH TRÌNH -> CẮM CỜ XUẤT PHÁT (ẨN CỜ ĐÍCH) ---[cite: 4]
     private void startModeRecord() {
         currentMode = MODE_RECORDING;
         tvQuickStatus.setText("Chế độ: ĐANG GHI");
@@ -686,40 +448,14 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         dbHelper.clearAllPoints();
         trackLine.getActualPoints().clear();
         trackLine.setVisible(true);
-
-        // Ẩn cờ Đích khi bắt đầu chặng mới[cite: 4]
-        if (finishFlagMarker != null) finishFlagMarker.setVisible(false);
-
-        if (myCurrentPoint != null) {
-            startFlagMarker.setPosition(myCurrentPoint);
-            startFlagMarker.setVisible(true);
-            isWaitingFirstStartPoint = false;
-        } else {
-            isWaitingFirstStartPoint = true;
-        }
-
         mapView.invalidate();
-
-        Intent intent = new Intent(this, TrackingService.class);
-        ContextCompat.startForegroundService(this, intent);
 
         btnStartRecord.setEnabled(false);
         btnStopRecord.setEnabled(true);
-        Toast.makeText(this, "Bắt đầu ghi vết & Cắm cờ Xuất phát!", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Bắt đầu ghi vệt hành trình!", Toast.LENGTH_SHORT).show();
     }
 
-    // --- CHỈ KHI BẤM DỪNG & XUẤT MỚI CẮM CỜ ĐÍCH ĐẾN ---[cite: 4]
     private void stopModeRecordAndExport() {
-        Intent intent = new Intent(this, TrackingService.class);
-        stopService(intent);
-
-        // CỜ ĐÍCH CHỈ XUẤT HIỆN TẠI ĐÂY[cite: 4]
-        if (myCurrentPoint != null) {
-            finishFlagMarker.setPosition(myCurrentPoint);
-            finishFlagMarker.setVisible(true);
-            mapView.invalidate();
-        }
-
         currentMode = MODE_STANDBY;
         updateRoleDisplay();
         btnStartRecord.setEnabled(true);
@@ -752,85 +488,23 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 .show();
     }
 
-    // --- NẠP GPX: NẠP VỆT DẠ QUANG VÀ TOÀN BỘ CỜ TÁC CHIẾN ĐÃ ĐÁNH DẤU ---
     private void loadPlannedGpx(File gpxFile) {
         List<GeoPoint> points = new ArrayList<>();
-
-        // Xóa sạch cờ mốc dẫn đường cũ trước khi nạp tệp mới
-        for (Marker m : plannedFlagMarkers) {
-            mapView.getOverlays().remove(m);
-        }
-        plannedFlagMarkers.clear();
-
         try (InputStream inputStream = new FileInputStream(gpxFile)) {
             XmlPullParser parser = Xml.newPullParser();
             parser.setInput(inputStream, null);
             int eventType = parser.getEventType();
 
-            String currentTag = "";
-            double wptLat = 0, wptLon = 0;
-            String wptName = "", wptType = "";
-            boolean inWpt = false;
-            boolean hasStartWpt = false;
-
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 if (eventType == XmlPullParser.START_TAG) {
-                    currentTag = parser.getName();
-                    if ("wpt".equalsIgnoreCase(currentTag)) {
-                        inWpt = true;
-                        wptName = "";
-                        wptType = "";
-                        String latStr = parser.getAttributeValue(null, "lat");
-                        String lonStr = parser.getAttributeValue(null, "lon");
-                        if (latStr != null && lonStr != null) {
-                            wptLat = Double.parseDouble(latStr);
-                            wptLon = Double.parseDouble(lonStr);
-                        }
-                    } else if ("trkpt".equalsIgnoreCase(currentTag) || "rtept".equalsIgnoreCase(currentTag)) {
+                    String name = parser.getName();
+                    if ("trkpt".equalsIgnoreCase(name) || "rtept".equalsIgnoreCase(name)) {
                         String latStr = parser.getAttributeValue(null, "lat");
                         String lonStr = parser.getAttributeValue(null, "lon");
                         if (latStr != null && lonStr != null) {
                             points.add(new GeoPoint(Double.parseDouble(latStr), Double.parseDouble(lonStr)));
                         }
                     }
-                } else if (eventType == XmlPullParser.TEXT) {
-                    if (inWpt) {
-                        String text = parser.getText().trim();
-                        if ("name".equalsIgnoreCase(currentTag)) {
-                            wptName = text;
-                        } else if ("type".equalsIgnoreCase(currentTag)) {
-                            wptType = text;
-                        }
-                    }
-                } else if (eventType == XmlPullParser.END_TAG) {
-                    if ("wpt".equalsIgnoreCase(parser.getName())) {
-                        inWpt = false;
-                        GeoPoint wptPoint = new GeoPoint(wptLat, wptLon);
-                        Marker flag = new Marker(mapView);
-                        flag.setPosition(wptPoint);
-                        flag.setAnchor(22f / 72f, 66f / 72f);
-                        flag.setInfoWindow(null);
-
-                        // Phân loại cờ mốc tác chiến đã lưu
-                        if ("PURPLE".equalsIgnoreCase(wptType) || wptName.contains("KIEM_TRA")) {
-                            flag.setIcon(createTacticalFlagIcon(Color.parseColor("#7B1FA2")));
-                            flag.setTitle("KIỂM TRA");
-                        } else if ("YELLOW".equalsIgnoreCase(wptType) || wptName.contains("GHI_NHO")) {
-                            flag.setIcon(createTacticalFlagIcon(Color.parseColor("#F57F17")));
-                            flag.setTitle("GHI NHỚ");
-                        } else if ("RED".equalsIgnoreCase(wptType) || wptName.contains("DICH")) {
-                            flag.setIcon(createTacticalFlagIcon(Color.parseColor("#D50000")));
-                            flag.setTitle("ĐÍCH ĐẾN");
-                        } else {
-                            flag.setIcon(createTacticalFlagIcon(Color.parseColor("#00C853")));
-                            flag.setTitle("XUẤT PHÁT");
-                            hasStartWpt = true;
-                        }
-
-                        mapView.getOverlays().add(flag);
-                        plannedFlagMarkers.add(flag);
-                    }
-                    currentTag = "";
                 }
                 eventType = parser.next();
             }
@@ -839,21 +513,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 trackLine.getActualPoints().clear();
                 trackLine.setVisible(false);
 
-                // Tuyến lộ trình xanh lục dạ quang #0EDA4B[cite: 4]
                 plannedGpxLine.setPoints(points);
-
-                // Nếu file GPX bên ngoài không có thẻ <wpt> xuất phát, tự cắm Cờ Xanh ở đầu tuyến
-                if (!hasStartWpt && plannedFlagMarkers.isEmpty()) {
-                    Marker startFlag = new Marker(mapView);
-                    startFlag.setPosition(points.get(0));
-                    startFlag.setAnchor(22f / 72f, 66f / 72f);
-                    startFlag.setIcon(createTacticalFlagIcon(Color.parseColor("#00C853")));
-                    startFlag.setTitle("XUẤT PHÁT");
-                    startFlag.setInfoWindow(null);
-                    mapView.getOverlays().add(startFlag);
-                    plannedFlagMarkers.add(startFlag);
-                }
-
                 mapView.getController().animateTo(points.get(0));
                 mapView.getController().setZoom(16.0);
                 mapView.invalidate();
@@ -862,10 +522,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 tvQuickStatus.setText("LỘ TRÌNH: BÁM ĐƯỜNG GPX");
                 drawerLayout.closeDrawer(GravityCompat.START);
 
-                Intent intent = new Intent(this, TrackingService.class);
-                ContextCompat.startForegroundService(this, intent);
-
-                Toast.makeText(this, "Đã nạp: " + gpxFile.getName() + " (Kèm toàn bộ cờ mốc)", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Đang dẫn đường: " + gpxFile.getName(), Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             Toast.makeText(this, "Lỗi nạp GPX: " + e.getMessage(), Toast.LENGTH_SHORT).show();
@@ -897,7 +554,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         }
     }
 
-    // --- XUẤT FILE GPX: LƯU ĐẦY ĐỦ CẢ VỆT BÁNH XE VÀ TOÀN BỘ CỜ MỐC TÁC CHIẾN ---
     private void exportGpxFile() {
         Cursor cursor = dbHelper.getAllPoints();
         if (cursor == null || cursor.getCount() == 0) {
@@ -913,36 +569,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         File gpxFile = new File(exportDir, "Track_" + timeStamp + ".gpx");
 
         try (FileWriter writer = new FileWriter(gpxFile)) {
-            writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"J2OfflineTracker\">\n");
-
-            // 1. XUẤT CỜ XUẤT PHÁT (<wpt>) - ĐÃ SỬA DÙNG isEnabled()
-            if (startFlagMarker != null && startFlagMarker.isEnabled() && startFlagMarker.getPosition() != null) {
-                writer.write(String.format(Locale.US, "  <wpt lat=\"%.6f\" lon=\"%.6f\">\n    <name>XP</name>\n    <type>GREEN</type>\n  </wpt>\n",
-                        startFlagMarker.getPosition().getLatitude(), startFlagMarker.getPosition().getLongitude()));
-            }
-
-            // 2. XUẤT CỜ ĐÍCH ĐẾN (<wpt>) - ĐÃ SỬA DÙNG isEnabled()
-            if (finishFlagMarker != null && finishFlagMarker.isEnabled() && finishFlagMarker.getPosition() != null) {
-                writer.write(String.format(Locale.US, "  <wpt lat=\"%.6f\" lon=\"%.6f\">\n    <name>DICH</name>\n    <type>RED</type>\n  </wpt>\n",
-                        finishFlagMarker.getPosition().getLatitude(), finishFlagMarker.getPosition().getLongitude()));
-            }
-
-            // 3. XUẤT TOÀN BỘ CỜ VÀNG & CỜ TÍM (<wpt>)
-            for (Marker flag : tacticalFlagMarkers) {
-                if (flag.getPosition() != null) {
-                    String flagType = "YELLOW";
-                    String flagName = "GHI_NHO";
-                    if ("KIỂM TRA".equals(flag.getTitle())) {
-                        flagType = "PURPLE";
-                        flagName = "KIEM_TRA";
-                    }
-                    writer.write(String.format(Locale.US, "  <wpt lat=\"%.6f\" lon=\"%.6f\">\n    <name>%s</name>\n    <type>%s</type>\n  </wpt>\n",
-                            flag.getPosition().getLatitude(), flag.getPosition().getLongitude(), flagName, flagType));
-                }
-            }
-
-            // 4. XUẤT VỆT DI CHUYỂN (<trkpt>)
-            writer.write("  <trk>\n    <name>Track " + timeStamp + "</name>\n    <trkseg>\n");
+            writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"J2OfflineTracker\">\n  <trk>\n    <name>Track " + timeStamp + "</name>\n    <trkseg>\n");
             SimpleDateFormat isoFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
 
             while (cursor.moveToNext()) {
@@ -955,7 +582,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                         lat, lng, speed, isoFormat.format(new Date(time))));
             }
             writer.write("    </trkseg>\n  </trk>\n</gpx>");
-            Toast.makeText(this, "Đã lưu vết & cờ mốc vào Download:\n" + gpxFile.getName(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Đã lưu vết vào Download:\n" + gpxFile.getName(), Toast.LENGTH_LONG).show();
         } catch (IOException e) {
             Toast.makeText(this, "Lỗi xuất GPX: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         } finally {
@@ -965,33 +592,21 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
 
     private void loadExistingTrackFromDb() {
         Cursor cursor = dbHelper.getAllPoints();
-        if (cursor != null && cursor.getCount() > 0) {
+        if (cursor != null) {
             trackLine.getActualPoints().clear();
-            GeoPoint firstPoint = null;
             GeoPoint lastPoint = null;
-
             while (cursor.moveToNext()) {
                 double lat = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LAT));
                 double lng = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LNG));
-                GeoPoint pt = new GeoPoint(lat, lng);
-
-                if (firstPoint == null) {
-                    firstPoint = pt;
-                }
-                lastPoint = pt;
-                trackLine.addPoint(pt);
+                lastPoint = new GeoPoint(lat, lng);
+                trackLine.addPoint(lastPoint);
             }
             cursor.close();
 
-            if (firstPoint != null) {
-                startFlagMarker.setPosition(firstPoint);
-                startFlagMarker.setVisible(true);
-            }
             if (lastPoint != null) {
                 currentMarker.setPosition(lastPoint);
                 currentMarker.setVisible(true);
             }
-
             tvStats.setText(String.format(Locale.US, "Đã ghi: %d điểm", dbHelper.getPointCount()));
             mapView.invalidate();
         }
@@ -1009,7 +624,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
                 currentMarker.setPosition(myCurrentPoint);
                 currentMarker.setVisible(true);
             }
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0.0f, this);
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1.0f, this);
         } catch (Exception ignored) {}
     }
 
@@ -1057,28 +672,22 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         }
     }
 
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     @Override
     protected void onResume() {
         super.onResume();
         mapView.onResume();
 
-        try {
-            if (Build.VERSION.SDK_INT >= 33) {
-                registerReceiver(locationReceiver, new IntentFilter("GPS_LOCATION_UPDATE"), Context.RECEIVER_NOT_EXPORTED);
-            } else {
-                registerReceiver(locationReceiver, new IntentFilter("GPS_LOCATION_UPDATE"));
-            }
-        } catch (Exception ignored) {}
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("GPS_LOCATION_UPDATE");
+        filter.addAction("LORA_BT_STATUS");
+        filter.addAction("LORA_POS_RECEIVED");
+        filter.addAction("LORA_CMD_RECEIVED");
+        registerReceiver(serviceReceiver, filter);
 
         if (currentMode == MODE_RECORDING) {
             loadExistingTrackFromDb();
         }
         startImmediateLocationListening();
-
-        if (!isBtConnected) {
-            startBluetoothConnection();
-        }
     }
 
     @Override
@@ -1086,7 +695,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         super.onPause();
         mapView.onPause();
         try {
-            unregisterReceiver(locationReceiver);
+            unregisterReceiver(serviceReceiver);
         } catch (Exception ignored) {}
 
         if (currentMode != MODE_RECORDING && currentMode != MODE_FOLLOW_ROUTE) {
@@ -1100,11 +709,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     protected void onDestroy() {
         super.onDestroy();
         mapView.onDetach();
-        isBtConnected = false;
-        try {
-            if (btSocket != null) btSocket.close();
-        } catch (Exception ignored) {}
-
         if (alertRingtone != null && alertRingtone.isPlaying()) alertRingtone.stop();
         if (warningBeep != null && warningBeep.isPlaying()) warningBeep.stop();
         if (vibrator != null) vibrator.cancel();
