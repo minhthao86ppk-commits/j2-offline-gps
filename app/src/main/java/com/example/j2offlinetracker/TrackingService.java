@@ -17,8 +17,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.preference.PreferenceManager; // Dùng thư viện chuẩn của Android SDK gốc, tránh lỗi thiếu dependency
 import androidx.core.app.NotificationCompat;
-import androidx.preference.PreferenceManager;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -39,7 +39,7 @@ public class TrackingService extends Service implements LocationListener {
     private DatabaseHelper dbHelper;
     private PowerManager.WakeLock wakeLock;
 
-    // Vị trí phục vụ bộ lọc chống trôi
+    // Vị trí phục vụ bộ lọc chống trôi tọa độ
     private Location lastValidLocation = null;
     private Location latestGpsLocation = null;
 
@@ -169,7 +169,7 @@ public class TrackingService extends Service implements LocationListener {
         intent.putExtra("speed", location.getSpeed());
         sendBroadcast(intent);
 
-        // Ghi vào SQLite khi bật ghi hành trình
+        // Ghi vào SQLite khi bật chế độ ghi hành trình
         if (isRecording) {
             dbHelper.insertPoint(
                     location.getLatitude(),
@@ -269,12 +269,12 @@ public class TrackingService extends Service implements LocationListener {
                     posIntent.putExtra("raw", receivedPacket);
                     sendBroadcast(posIntent);
                 } else if (receivedPacket.startsWith("#CMD")) {
-                    // 1. Gửi Broadcast lên MainActivity
+                    // 1. Bắn Broadcast lên MainActivity (khi app đang mở)
                     Intent cmdIntent = new Intent("LORA_CMD_RECEIVED");
                     cmdIntent.putExtra("raw", receivedPacket);
                     sendBroadcast(cmdIntent);
 
-                    // 2. PHÁT THÔNG BÁO KHẨN CẤP NGAY TRONG SERVICE (Dù màn hình đang khóa/tắt)
+                    // 2. PHÁT THÔNG BÁO KHẨN CẤP TRỰC TIẾP TỪ SERVICE (dù app đang ẩn hoặc khóa màn hình)
                     triggerTacticalAlertNotification(receivedPacket);
 
                 } else if (receivedPacket.startsWith("#ACK")) {
@@ -284,7 +284,7 @@ public class TrackingService extends Service implements LocationListener {
                 }
             }
         } catch (Exception ignored) {
-            // Mạch mất nguồn hoặc ngoài tầm sóng
+            // Mạch ngoài tầm sóng hoặc mất nguồn
         } finally {
             synchronized (btWriteLock) {
                 isBtConnected = false;
@@ -325,7 +325,7 @@ public class TrackingService extends Service implements LocationListener {
         sendBroadcast(btStatusIntent);
     }
 
-    // GỬI DỮ LIỆU QUA EXECUTOR ĐƠN LUỒNG: BẢO ĐẢM THỨ TỰ FIFO, KHÔNG RÒ RỈ THREAD
+    // GỬI DỮ LIỆU QUA EXECUTOR ĐƠN LUỒNG: BẢO ĐẢM THỨ TỰ FIFO, KHÔNG GÂY RÒ RỈ BỘ NHỚ
     public void sendBluetoothData(String data) {
         if (!isBtConnected || data == null) return;
 
