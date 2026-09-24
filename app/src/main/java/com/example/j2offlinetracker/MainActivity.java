@@ -18,10 +18,11 @@ import android.location.Location;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.VibrationEffect;
 import android.os.Vibrator;
-import android.preference.PreferenceManager;
 import android.util.Xml;
 import android.widget.Button;
 import android.widget.TextView;
@@ -34,6 +35,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.GravityCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.preference.PreferenceManager;
 
 import org.osmdroid.config.Configuration;
 import org.osmdroid.tileprovider.modules.IArchiveFile;
@@ -124,7 +126,6 @@ public class MainActivity extends AppCompatActivity {
                 case "GPS_LOCATION_UPDATE":
                     double lat = intent.getDoubleExtra("lat", 0.0);
                     double lng = intent.getDoubleExtra("lng", 0.0);
-                    float speed = intent.getFloatExtra("speed", 0.0f);
 
                     myCurrentPoint = new GeoPoint(lat, lng);
                     currentMarker.setPosition(myCurrentPoint);
@@ -145,7 +146,7 @@ public class MainActivity extends AppCompatActivity {
                         mapView.getController().animateTo(myCurrentPoint);
                     }
 
-                    // TÍNH VÀ CẬP NHẬT CỰ LY LIÊN TỤC
+                    // ĐÁNH GIÁ CỰ LY ĐỘI HÌNH
                     evaluateConvoySpacing();
                     mapView.invalidate();
                     break;
@@ -208,7 +209,7 @@ public class MainActivity extends AppCompatActivity {
         updateRoleDisplay();
         checkPermissionsAndInit();
 
-        // CHỐNG BẤM NHẦM: CHỈ DUY NHẤT NHẤN GIỮ 2 GIÂY ĐỂ ĐỔI VAI TRÒ XE
+        // CHỐNG BẤM NHẦM: NHẤN GIỮ 2 GIÂY ĐỂ ĐỔI VAI TRÒ XE
         tvQuickStatus.setOnLongClickListener(v -> {
             showRoleSelectionDialog();
             return true;
@@ -217,7 +218,7 @@ public class MainActivity extends AppCompatActivity {
         // Chạm vào thông số để đổi file bản đồ ngoại tuyến tức thời
         tvStats.setOnClickListener(v -> pickOfflineMap());
 
-        // KÍCH HOẠT SERVICE NGẦM GIỮ KẾT NỐI BLUETOOTH & GPS VĨNH VIỄN
+        // KÍCH HOẠT SERVICE NGẦM DUY TRÌ KẾT NỐI
         Intent serviceIntent = new Intent(this, TrackingService.class);
         ContextCompat.startForegroundService(this, serviceIntent);
     }
@@ -458,11 +459,9 @@ public class MainActivity extends AppCompatActivity {
                     teammatePoint = new GeoPoint(rLat, rLng);
                     teammateSpeed = rSpeed;
 
-                    // Hiện con trỏ xe bạn ngay lập tức
                     teammateMarker.setPosition(teammatePoint);
                     teammateMarker.setVisible(true);
 
-                    // Tính cự ly ngay khi có tọa độ
                     evaluateConvoySpacing();
                     mapView.invalidate();
                 }
@@ -509,7 +508,12 @@ public class MainActivity extends AppCompatActivity {
             lastSpacingAlertTime = now;
             try {
                 if (vibrator != null) {
-                    vibrator.vibrate(new long[]{0, 300, 150, 300}, -1);
+                    long[] pattern = {0, 300, 150, 300};
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1));
+                    } else {
+                        vibrator.vibrate(pattern, -1);
+                    }
                 }
                 if (warningBeep != null && !warningBeep.isPlaying()) {
                     warningBeep.play();
@@ -554,7 +558,11 @@ public class MainActivity extends AppCompatActivity {
             if (alertRingtone != null && !alertRingtone.isPlaying()) alertRingtone.play();
             if (vibrator != null) {
                 long[] pattern = {0, 600, 300, 600, 300};
-                vibrator.vibrate(pattern, 0);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createWaveform(pattern, 0));
+                } else {
+                    vibrator.vibrate(pattern, 0);
+                }
             }
         } catch (Exception ignored) {}
 
@@ -634,7 +642,6 @@ public class MainActivity extends AppCompatActivity {
             finishFlagMarker = null;
         }
 
-        // Cắm cờ Xuất phát trơn màu xanh
         if (myCurrentPoint != null) {
             plantStartFlag(myCurrentPoint);
         } else {
@@ -662,7 +669,6 @@ public class MainActivity extends AppCompatActivity {
         btnStartRecord.setEnabled(true);
         btnStopRecord.setEnabled(false);
 
-        // DUY NHẤT LÚC BẤM DỪNG VÀ XUẤT MỚI CẮM CỜ ĐÍCH
         if (myCurrentPoint != null) {
             plantFinishFlag(myCurrentPoint);
         }
@@ -738,7 +744,6 @@ public class MainActivity extends AppCompatActivity {
                 mapView.getController().animateTo(points.get(0));
                 mapView.getController().setZoom(16.0);
 
-                // KHI NẠP GPX: CHỈ CẮM CỜ XUẤT PHÁT, KHÔNG CẮM CỜ ĐÍCH
                 plantStartFlag(gpxStartPoint != null ? gpxStartPoint : points.get(0));
                 mapView.invalidate();
 
@@ -770,7 +775,6 @@ public class MainActivity extends AppCompatActivity {
         try (FileWriter writer = new FileWriter(gpxFile)) {
             writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"J2OfflineTracker\">\n");
 
-            // Xuất cờ Xuất phát và Đích đến
             if (startFlagMarker != null && startFlagMarker.isEnabled() && startFlagMarker.getPosition() != null) {
                 writer.write(String.format(Locale.US, "  <wpt lat=\"%.6f\" lon=\"%.6f\">\n    <name>XP</name>\n    <type>GREEN</type>\n  </wpt>\n",
                         startFlagMarker.getPosition().getLatitude(), startFlagMarker.getPosition().getLongitude()));
@@ -780,7 +784,6 @@ public class MainActivity extends AppCompatActivity {
                         finishFlagMarker.getPosition().getLatitude(), finishFlagMarker.getPosition().getLongitude()));
             }
 
-            // Xuất các cờ dã chiến Vàng / Tím
             for (Marker m : tacticalFlagsList) {
                 if (m != null && m.getPosition() != null) {
                     String tag = m.getSubDescription() != null ? m.getSubDescription() : "FLAG";
@@ -869,26 +872,35 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ĐỒNG BỘ ĐẦY ĐỦ QUYỀN HỆ ĐIỀU HÀNH TỪ ANDROID 8 ĐẾN 14+
     private void checkPermissionsAndInit() {
-        String[] permissions = {
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-        };
+        List<String> permissions = new ArrayList<>();
+        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
 
-        boolean allGranted = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+            permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        }
+
+        List<String> missingPermissions = new ArrayList<>();
         for (String perm : permissions) {
             if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
-                allGranted = false;
-                break;
+                missingPermissions.add(perm);
             }
         }
 
-        if (allGranted) {
+        if (missingPermissions.isEmpty()) {
             loadOfflineMap();
         } else {
-            ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
+            ActivityCompat.requestPermissions(this, missingPermissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
         }
     }
 
@@ -906,8 +918,26 @@ public class MainActivity extends AppCompatActivity {
             if (allGranted) {
                 loadOfflineMap();
             } else {
-                Toast.makeText(this, "Cần cấp đủ quyền Vị trí & Bộ nhớ!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Cần cấp đủ quyền Vị trí, LoRa & Bộ nhớ!", Toast.LENGTH_SHORT).show();
             }
+        }
+    }
+
+    // ĐỒNG BỘ LẠI ĐƯỜNG VẼ TỪ SQLITE KHI MỞ LẠI ỨNG DỤNG SAU KHI TẮT MÀN HÌNH
+    private void reloadTrackFromDatabase() {
+        Cursor cursor = dbHelper.getAllPoints();
+        if (cursor == null) return;
+        try {
+            trackLine.getActualPoints().clear();
+            while (cursor.moveToNext()) {
+                double lat = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LAT));
+                double lng = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LNG));
+                trackLine.addPoint(new GeoPoint(lat, lng));
+            }
+            mapView.invalidate();
+        } catch (Exception ignored) {
+        } finally {
+            cursor.close();
         }
     }
 
@@ -921,7 +951,17 @@ public class MainActivity extends AppCompatActivity {
         filter.addAction("LORA_BT_STATUS");
         filter.addAction("LORA_POS_RECEIVED");
         filter.addAction("LORA_CMD_RECEIVED");
-        registerReceiver(tacticalServiceReceiver, filter);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(tacticalServiceReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(tacticalServiceReceiver, filter);
+        }
+
+        // Tự động nối lại đoạn vẽ đã ghi ngầm lúc màn hình tắt
+        if (currentMode == MODE_RECORDING) {
+            reloadTrackFromDatabase();
+        }
     }
 
     @Override
