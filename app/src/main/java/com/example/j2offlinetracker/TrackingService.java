@@ -61,7 +61,7 @@ public class TrackingService extends Service implements LocationListener {
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
-        // PARTIAL_WAKE_LOCK: Giữ CPU hoạt động liên tục khi khóa màn hình
+        // PARTIAL_WAKE_LOCK: Giữ CPU hoạt động liên tục khi tắt/khóa màn hình
         PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (powerManager != null) {
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "J2Tracker:TacticalWakeLock");
@@ -117,30 +117,45 @@ public class TrackingService extends Service implements LocationListener {
     public void onLocationChanged(Location location) {
         if (location == null) return;
 
-        // Lọc nhiễu tọa độ ban đầu
-        if (location.hasAccuracy() && location.getAccuracy() > 15.0f) {
+        // Nới lỏng lọc sai số ban đầu (30m) để bắt tọa độ nhanh nhất
+        if (location.hasAccuracy() && location.getAccuracy() > 30.0f) {
             return;
         }
 
-        if (lastRecordedLocation != null) {
-            float distance = location.distanceTo(lastRecordedLocation);
-            long timeDelta = (location.getTime() - lastRecordedLocation.getTime()) / 1000;
-            if (timeDelta <= 0) timeDelta = 1;
+        // BẮN BROADCAST CẬP NHẬT VỊ TRÍ XE MÌNH LÊN BẢN ĐỒ
+        Intent intent = new Intent("GPS_LOCATION_UPDATE");
+        intent.putExtra("lat", location.getLatitude());
+        intent.putExtra("lng", location.getLongitude());
+        intent.putExtra("speed", location.getSpeed());
+        sendBroadcast(intent);
 
-            if (distance < 1.0f && location.getSpeed() < 0.3f) {
-                return;
-            }
-
-            float speedCheck = distance / timeDelta;
-            if (speedCheck > 35.0f) {
-                return; // Loại trừ bước nhảy ảo quá 126 km/h
-            }
+        // PHÁT TỌA ĐỘ SANG MẠCH LORA MỖI GIÂY (CHẠY HOẶC ĐỖ 0 KM/H ĐỀU PHÁT LIÊN TỤC)
+        if (System.currentTimeMillis() - lastBtSendTime >= 1000) {
+            lastBtSendTime = System.currentTimeMillis();
+            int myVehicleId = sharedPreferences.getInt("CFG_VEHICLE_ID", 1);
+            String posPacket = String.format(Locale.US, "#POS,%d,%.6f,%.6f,%.1f\n",
+                    myVehicleId, location.getLatitude(), location.getLongitude(), location.getSpeed());
+            sendBluetoothData(posPacket);
         }
 
-        lastRecordedLocation = location;
-
-        // CHỈ LƯU VÀO CƠ SỞ DỮ LIỆU KHI Ở CHẾ ĐỘ BẮT ĐẦU GHI
+        // BỘ LỌC ĐỨNG YÊN CHỈ ÁP DỤNG KHI GHI VẾT VÀO SQLITE
         if (isRecording) {
+            if (lastRecordedLocation != null) {
+                float distance = location.distanceTo(lastRecordedLocation);
+                long timeDelta = (location.getTime() - lastRecordedLocation.getTime()) / 1000;
+                if (timeDelta <= 0) timeDelta = 1;
+
+                if (distance < 1.0f && location.getSpeed() < 0.3f) {
+                    return; // Đứng yên thì không ghi rác điểm vào cơ sở dữ liệu
+                }
+
+                float speedCheck = distance / timeDelta;
+                if (speedCheck > 35.0f) {
+                    return; // Loại bỏ bước nhảy ảo quá 126 km/h
+                }
+            }
+
+            lastRecordedLocation = location;
             dbHelper.insertPoint(
                     location.getLatitude(),
                     location.getLongitude(),
@@ -148,25 +163,9 @@ public class TrackingService extends Service implements LocationListener {
                     location.getTime()
             );
         }
-
-        // Bắn Broadcast để cập nhật giao diện MainActivity nếu đang mở
-        Intent intent = new Intent("GPS_LOCATION_UPDATE");
-        intent.putExtra("lat", location.getLatitude());
-        intent.putExtra("lng", location.getLongitude());
-        intent.putExtra("speed", location.getSpeed());
-        sendBroadcast(intent);
-
-        // ĐỊNH KỲ 1 GIÂY: BẮN GÓI TIN #POS SANG LORA KỂ CẢ KHI TẮT MÀN HÌNH
-        if (System.currentTimeMillis() - lastBtSendTime > 1000) {
-            lastBtSendTime = System.currentTimeMillis();
-            int myVehicleId = sharedPreferences.getInt("CFG_VEHICLE_ID", 1);
-            String posPacket = String.format(Locale.US, "#POS,%d,%.6f,%.6f,%.1f\n",
-                    myVehicleId, location.getLatitude(), location.getLongitude(), location.getSpeed());
-            sendBluetoothData(posPacket);
-        }
     }
 
-    // --- CƠ CHẾ TỰ ĐỘNG QUÉT & TỰ ĐỘNG THỬ LẠI KẾT NỐI (AUTO-RECONNECT) ---
+    // --- CƠ CHẾ QUÉT & TỰ ĐỘNG KẾT NỐI LẠI BLUETOOTH (AUTO-RECONNECT) ---
     private void startBluetoothWorker() {
         if (btWorkerThread != null && btWorkerThread.isAlive()) return;
 
@@ -177,7 +176,6 @@ public class TrackingService extends Service implements LocationListener {
                     attemptBluetoothConnect();
                 }
                 try {
-                    // Chờ 3 giây trước lần quét/thử lại tiếp theo nếu mất kết nối
                     Thread.sleep(3000);
                 } catch (InterruptedException e) {
                     break;
@@ -238,7 +236,7 @@ public class TrackingService extends Service implements LocationListener {
                 }
             }
         } catch (Exception e) {
-            // Rớt kết nối hoặc mạch Heltec chưa bật
+            // Mạch Heltec tắt hoặc mất sóng
         } finally {
             isBtConnected = false;
             try {
@@ -277,11 +275,9 @@ public class TrackingService extends Service implements LocationListener {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
-            // Điều khiển trạng thái ghi vào cơ sở dữ liệu
             if (intent.hasExtra("CMD_SET_RECORDING")) {
                 this.isRecording = intent.getBooleanExtra("CMD_SET_RECORDING", false);
             }
-            // Nhận mệnh lệnh tác chiến từ MainActivity bắn sang mạch Heltec
             if (intent.hasExtra("SEND_LORA_PACKET")) {
                 String packet = intent.getStringExtra("SEND_LORA_PACKET");
                 sendBluetoothData(packet);
