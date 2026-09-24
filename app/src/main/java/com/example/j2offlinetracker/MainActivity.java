@@ -23,6 +23,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.preference.PreferenceManager; // Sử dụng thư viện SDK gốc, tránh lỗi thiếu thư viện
 import android.util.Xml;
 import android.widget.Button;
 import android.widget.TextView;
@@ -35,7 +36,6 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.GravityCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
-import androidx.preference.PreferenceManager;
 
 import org.osmdroid.config.Configuration;
 import org.osmdroid.tileprovider.modules.IArchiveFile;
@@ -146,7 +146,6 @@ public class MainActivity extends AppCompatActivity {
                         mapView.getController().animateTo(myCurrentPoint);
                     }
 
-                    // ĐÁNH GIÁ CỰ LY ĐỘI HÌNH
                     evaluateConvoySpacing();
                     mapView.invalidate();
                     break;
@@ -209,16 +208,13 @@ public class MainActivity extends AppCompatActivity {
         updateRoleDisplay();
         checkPermissionsAndInit();
 
-        // CHỐNG BẤM NHẦM: NHẤN GIỮ 2 GIÂY ĐỂ ĐỔI VAI TRÒ XE
         tvQuickStatus.setOnLongClickListener(v -> {
             showRoleSelectionDialog();
             return true;
         });
 
-        // Chạm vào thông số để đổi file bản đồ ngoại tuyến tức thời
         tvStats.setOnClickListener(v -> pickOfflineMap());
 
-        // KÍCH HOẠT SERVICE NGẦM DUY TRÌ KẾT NỐI
         Intent serviceIntent = new Intent(this, TrackingService.class);
         ContextCompat.startForegroundService(this, serviceIntent);
     }
@@ -252,7 +248,6 @@ public class MainActivity extends AppCompatActivity {
         mapView.setMultiTouchControls(true);
         mapView.setUseDataConnection(false);
 
-        // Lộ trình GPX mẫu: Hồng dạ quang (#E91E63)
         plannedGpxLine = new Polyline(mapView);
         plannedGpxLine.setColor(Color.parseColor("#E91E63"));
         plannedGpxLine.setWidth(9.0f);
@@ -260,7 +255,6 @@ public class MainActivity extends AppCompatActivity {
         plannedGpxLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
         mapView.getOverlays().add(plannedGpxLine);
 
-        // Vệt thực tế: Xanh dương đậm (#003399)
         trackLine = new Polyline(mapView);
         trackLine.setColor(Color.parseColor("#003399"));
         trackLine.setWidth(7.0f);
@@ -268,7 +262,6 @@ public class MainActivity extends AppCompatActivity {
         trackLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
         mapView.getOverlays().add(trackLine);
 
-        // Con trỏ vị trí xe ta
         currentMarker = new Marker(mapView);
         currentMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
         currentMarker.setIcon(createVehicleDot(myVehicleId == 1 ? Color.parseColor("#007AFF") : Color.parseColor("#00C853")));
@@ -276,7 +269,6 @@ public class MainActivity extends AppCompatActivity {
         currentMarker.setVisible(false);
         mapView.getOverlays().add(currentMarker);
 
-        // Con trỏ xe đồng đội (LoRa Telemetry) màu cam dã chiến
         teammateMarker = new Marker(mapView);
         teammateMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
         teammateMarker.setIcon(createVehicleDot(Color.parseColor("#FF9100")));
@@ -311,7 +303,6 @@ public class MainActivity extends AppCompatActivity {
         return new BitmapDrawable(getResources(), bitmap);
     }
 
-    // CỜ TRƠN HOÀN TOÀN: KHÔNG KÝ HIỆU, KHÔNG CHỮ VIẾT
     private BitmapDrawable createPlainTacticalFlag(int flagColor) {
         int w = 64;
         int h = 64;
@@ -445,7 +436,6 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    // --- HIỂN THỊ ĐỒNG ĐỘI & GIÁM SÁT CỰ LY ĐỘI HÌNH TỨC THÌ ---
     private void parseTeammatePosition(String rawPacket) {
         String[] parts = rawPacket.split(",");
         if (parts.length >= 5) {
@@ -872,7 +862,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ĐỒNG BỘ ĐẦY ĐỦ QUYỀN HỆ ĐIỀU HÀNH TỪ ANDROID 8 ĐẾN 14+
     private void checkPermissionsAndInit() {
         List<String> permissions = new ArrayList<>();
         permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
@@ -923,7 +912,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ĐỒNG BỘ LẠI ĐƯỜNG VẼ TỪ SQLITE KHI MỞ LẠI ỨNG DỤNG SAU KHI TẮT MÀN HÌNH
     private void reloadTrackFromDatabase() {
         Cursor cursor = dbHelper.getAllPoints();
         if (cursor == null) return;
@@ -958,7 +946,6 @@ public class MainActivity extends AppCompatActivity {
             registerReceiver(tacticalServiceReceiver, filter);
         }
 
-        // Tự động nối lại đoạn vẽ đã ghi ngầm lúc màn hình tắt
         if (currentMode == MODE_RECORDING) {
             reloadTrackFromDatabase();
         }
