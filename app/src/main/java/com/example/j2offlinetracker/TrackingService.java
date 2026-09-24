@@ -1,8 +1,8 @@
 package com.example.j2offlinetracker;
 
 import android.app.Notification;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -13,102 +13,201 @@ import android.content.SharedPreferences;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
-import android.media.Ringtone;
-import android.media.RingtoneManager;
-import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.PowerManager;
-import android.os.Vibrator;
-import android.preference.PreferenceManager;
-
 import androidx.core.app.NotificationCompat;
+import androidx.preference.PreferenceManager;
 
 import java.io.BufferedReader;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class TrackingService extends Service implements LocationListener {
 
-    private static final String BT_DEVICE_NAME = "LoRa_Tactical_Bridge";
-    private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+    private static final String CHANNEL_ID = "gps_tracking_channel";
     private static final int NOTIFICATION_ID = 1001;
+    private static final int CMD_NOTIFICATION_ID = 1002;
 
+    private LocationManager locationManager;
+    private DatabaseHelper dbHelper;
+    private PowerManager.WakeLock wakeLock;
+
+    // Vị trí phục vụ bộ lọc chống trôi
+    private Location lastValidLocation = null;
+    private Location latestGpsLocation = null;
+
+    private volatile boolean isRecording = false;
+
+    // Quản lý kết nối Bluetooth
+    private static final String TARGET_BT_NAME = "LoRa_Tactical_Bridge";
+    private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothSocket btSocket;
     private OutputStream btOutputStream;
-    private InputStream btInputStream;
-    private Thread btWorkerThread;
-    private final Object btWriteLock = new Object();
 
+    // KHÓA ĐỒNG BỘ VÀ HÀNG ĐỢI GỬI DỮ LIỆU ĐƠN LUỒNG (FIFO - KHÔNG TREO MÁY)
+    private final Object btWriteLock = new Object();
+    private final ExecutorService btSendExecutor = Executors.newSingleThreadExecutor();
+
+    private Thread btWorkerThread;
+    private Thread telemetryHeartbeatThread;
     private volatile boolean isBtConnected = false;
     private volatile boolean isRunning = true;
-    private boolean isRecording = false;
 
-    private LocationManager locationManager;
-    private PowerManager.WakeLock wakeLock;
-    private PowerManager.WakeLock screenWakeLock;
-    private Vibrator serviceVibrator;
-    private Ringtone serviceAlertRingtone;
-
-    private DatabaseHelper dbHelper;
     private SharedPreferences sharedPreferences;
-
-    private Location lastRecordedLocation = null;
-    private long lastBtSendTime = 0;
-    private long lastSpacingWarningTime = 0;
-
-    private double myLastLat = 0.0;
-    private double myLastLng = 0.0;
-    private float myLastSpeed = 0.0f;
-    private int myVehicleId = 1;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
         dbHelper = new DatabaseHelper(this);
-        myVehicleId = sharedPreferences.getInt("CFG_VEHICLE_ID", 1);
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        if (pm != null) {
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "J2Tracker:CpuWakeLock");
+        PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (powerManager != null) {
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "J2Tracker:TacticalWakeLock");
             wakeLock.acquire();
+        }
 
-            screenWakeLock = pm.newWakeLock(
-                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP | PowerManager.ON_AFTER_RELEASE,
-                    "J2Tracker:EmergencyWakeLock"
+        createNotificationChannel();
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Hệ thống định vị & Cầu LoRa")
+                .setContentText("Duy trì kết nối vô tuyến và giám sát đội hình 24/24...")
+                .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setOngoing(true)
+                .build();
+
+        startForeground(NOTIFICATION_ID, notification);
+        startLocationUpdates();
+
+        // 1. Luồng tự động quét và duy trì kết nối Bluetooth
+        startBluetoothWorker();
+
+        // 2. Luồng nhịp tim: Bơm tọa độ sang LoRa liên tục 1 giây/lần
+        startTelemetryHeartbeat();
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "GPS Offline Tactical Service",
+                    NotificationManager.IMPORTANCE_HIGH
+            );
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
+    }
+
+    private void startLocationUpdates() {
+        try {
+            if (locationManager != null) {
+                // Đặt minDistance = 1.0 mét để phần cứng tự khử các rung nhiễu vi mô
+                locationManager.requestLocationUpdates(
+                        LocationManager.GPS_PROVIDER,
+                        1000L,
+                        1.0f,
+                        this
+                );
+            }
+        } catch (SecurityException ignored) {
+            stopSelf();
+        }
+    }
+
+    // --- BỘ LỌC CHỐNG TRÔI TỌA ĐỘ VÀ KHỬ NHIỄU TUYỆT ĐỐI ---
+    @Override
+    public void onLocationChanged(Location location) {
+        if (location == null) return;
+
+        // 1. LỌC BÁN KÍNH SAI SỐ (ACCURACY): Bỏ qua điểm nếu sai số > 15m
+        if (location.hasAccuracy() && location.getAccuracy() > 15.0f) {
+            return;
+        }
+
+        if (lastValidLocation != null) {
+            float distance = location.distanceTo(lastValidLocation);
+            long timeDeltaSec = (location.getTime() - lastValidLocation.getTime()) / 1000;
+            if (timeDeltaSec <= 0) timeDeltaSec = 1;
+
+            // 2. LỌC BƯỚC NHẢY ẢO: Bỏ điểm nếu tốc độ tính toán vượt quá 120 km/h (~33.3 m/s)
+            if (distance / timeDeltaSec > 33.3f) {
+                return;
+            }
+
+            // 3. BỘ LỌC ĐỨNG YÊN (DEADBAND FILTER):
+            // Nếu dịch chuyển < 2.5m HOẶC tốc độ < 0.8 m/s (~3 km/h) và cự ly < 4.0m
+            // -> Xác định xe đang dừng, giữ nguyên tọa độ cũ, triệt tiêu hoàn toàn hiện tượng trôi dạt
+            if (distance < 2.5f || (location.hasSpeed() && location.getSpeed() < 0.8f && distance < 4.0f)) {
+                if (latestGpsLocation != null) {
+                    latestGpsLocation.setSpeed(0.0f);
+                    latestGpsLocation.setTime(location.getTime());
+                }
+                return; // KHÔNG broadcast điểm trôi, KHÔNG ghi vào SQLite
+            }
+        }
+
+        // --- ĐIỂM HỢP LỆ (XE ĐANG DI CHUYỂN THẬT SỰ) ---
+        lastValidLocation = location;
+        latestGpsLocation = location;
+
+        // Bắn Broadcast cập nhật giao diện
+        Intent intent = new Intent("GPS_LOCATION_UPDATE");
+        intent.putExtra("lat", location.getLatitude());
+        intent.putExtra("lng", location.getLongitude());
+        intent.putExtra("speed", location.getSpeed());
+        sendBroadcast(intent);
+
+        // Ghi vào SQLite khi bật ghi hành trình
+        if (isRecording) {
+            dbHelper.insertPoint(
+                    location.getLatitude(),
+                    location.getLongitude(),
+                    location.getSpeed(),
+                    location.getTime()
             );
         }
-
-        serviceVibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-        Uri alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-        if (alertUri == null) {
-            alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-        }
-        serviceAlertRingtone = RingtoneManager.getRingtone(this, alertUri);
-
-        startForeground(NOTIFICATION_ID, buildTacticalNotification("Hệ thống Định vị Tác chiến", "Khởi tạo dịch vụ ngầm...", false));
-
-        initLocationManager();
-        initBluetoothWorker();
     }
 
-    private void initLocationManager() {
-        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-        if (locationManager != null) {
-            try {
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0.0f, this);
-            } catch (SecurityException ignored) {}
-        }
+    // --- LUỒNG NHỊP TIM: BƠM TỌA ĐỘ SANG MẠCH ĐỀU ĐẶN 1 GIÂY/LẦN ---
+    private void startTelemetryHeartbeat() {
+        telemetryHeartbeatThread = new Thread(() -> {
+            while (isRunning) {
+                try {
+                    Thread.sleep(1000);
+                    if (isBtConnected && latestGpsLocation != null) {
+                        int myVehicleId = sharedPreferences.getInt("CFG_VEHICLE_ID", 1);
+                        String posPacket = String.format(Locale.US, "#POS,%d,%.6f,%.6f,%.1f\n",
+                                myVehicleId,
+                                latestGpsLocation.getLatitude(),
+                                latestGpsLocation.getLongitude(),
+                                latestGpsLocation.getSpeed());
+                        sendBluetoothData(posPacket);
+                    }
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        });
+        telemetryHeartbeatThread.start();
     }
 
-    private void initBluetoothWorker() {
-        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+    // --- LUỒNG QUẢN LÝ KẾT NỐI BLUETOOTH ---
+    private void startBluetoothWorker() {
+        if (btWorkerThread != null && btWorkerThread.isAlive()) return;
+
+        isRunning = true;
         btWorkerThread = new Thread(() -> {
             while (isRunning) {
                 if (!isBtConnected) {
@@ -126,80 +225,122 @@ public class TrackingService extends Service implements LocationListener {
 
     private void attemptBluetoothConnect() {
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) return;
+
         BluetoothDevice targetDevice = null;
-        Set<BluetoothDevice> bondedDevices = bluetoothAdapter.getBondedDevices();
-        if (bondedDevices != null) {
-            for (BluetoothDevice device : bondedDevices) {
-                if (BT_DEVICE_NAME.equals(device.getName())) {
-                    targetDevice = device;
-                    break;
+        try {
+            Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
+            if (pairedDevices != null) {
+                for (BluetoothDevice device : pairedDevices) {
+                    if (TARGET_BT_NAME.equalsIgnoreCase(device.getName())) {
+                        targetDevice = device;
+                        break;
+                    }
                 }
             }
+        } catch (SecurityException ignored) {
+            return;
         }
-        if (targetDevice == null) return;
+
+        if (targetDevice == null) {
+            broadcastBtStatus(false, "CHƯA GHÉP ĐÔI MẠCH LORA");
+            return;
+        }
 
         try {
+            bluetoothAdapter.cancelDiscovery();
             btSocket = targetDevice.createRfcommSocketToServiceRecord(SPP_UUID);
             btSocket.connect();
+
             synchronized (btWriteLock) {
                 btOutputStream = btSocket.getOutputStream();
-                btInputStream = btSocket.getInputStream();
                 isBtConnected = true;
             }
 
-            Intent connIntent = new Intent("BT_CONNECTION_STATUS");
-            connIntent.putExtra("connected", true);
-            sendBroadcast(connIntent);
+            broadcastBtStatus(true, "ĐÃ THÔNG CẦU LORA");
 
-            BufferedReader reader = new BufferedReader(new InputStreamReader(btInputStream));
+            BufferedReader reader = new BufferedReader(new InputStreamReader(btSocket.getInputStream()));
             String line;
-            while (isRunning && isBtConnected && (line = reader.readLine()) != null) {
-                String packet = line.trim();
-                if (packet.startsWith("#POS")) {
-                    handleIncomingPosPacket(packet);
-                } else if (packet.startsWith("#CMD")) {
-                    handleIncomingEmergencyCommand(packet);
+            while (isBtConnected && isRunning && (line = reader.readLine()) != null) {
+                final String receivedPacket = line.trim();
+                if (receivedPacket.isEmpty()) continue;
+
+                if (receivedPacket.startsWith("#POS")) {
+                    Intent posIntent = new Intent("LORA_POS_RECEIVED");
+                    posIntent.putExtra("raw", receivedPacket);
+                    sendBroadcast(posIntent);
+                } else if (receivedPacket.startsWith("#CMD")) {
+                    // 1. Gửi Broadcast lên MainActivity
+                    Intent cmdIntent = new Intent("LORA_CMD_RECEIVED");
+                    cmdIntent.putExtra("raw", receivedPacket);
+                    sendBroadcast(cmdIntent);
+
+                    // 2. PHÁT THÔNG BÁO KHẨN CẤP NGAY TRONG SERVICE (Dù màn hình đang khóa/tắt)
+                    triggerTacticalAlertNotification(receivedPacket);
+
+                } else if (receivedPacket.startsWith("#ACK")) {
+                    Intent ackIntent = new Intent("LORA_ACK_RECEIVED");
+                    ackIntent.putExtra("raw", receivedPacket);
+                    sendBroadcast(ackIntent);
                 }
             }
-        } catch (Exception e) {
-            closeBtSocket();
+        } catch (Exception ignored) {
+            // Mạch mất nguồn hoặc ngoài tầm sóng
+        } finally {
+            synchronized (btWriteLock) {
+                isBtConnected = false;
+                try {
+                    if (btOutputStream != null) btOutputStream.close();
+                    if (btSocket != null) btSocket.close();
+                } catch (Exception ignored) {}
+                btSocket = null;
+                btOutputStream = null;
+            }
+            broadcastBtStatus(false, "MẤT KẾT NỐI - ĐANG THỬ LẠI...");
         }
     }
 
-    private void closeBtSocket() {
-        synchronized (btWriteLock) {
-            isBtConnected = false;
-            try {
-                if (btInputStream != null) btInputStream.close();
-            } catch (Exception ignored) {}
-            try {
-                if (btOutputStream != null) btOutputStream.close();
-            } catch (Exception ignored) {}
-            try {
-                if (btSocket != null) btSocket.close();
-            } catch (Exception ignored) {}
-            btInputStream = null;
-            btOutputStream = null;
-            btSocket = null;
+    private void triggerTacticalAlertNotification(String rawCmd) {
+        String[] parts = rawCmd.split(",");
+        String sender = (parts.length >= 2) ? "XE " + parts[1] : "ĐỒNG ĐỘI";
+        String cmdDesc = (parts.length >= 4) ? parts[3] : "LỆNH TÁC CHIẾN";
+
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager != null) {
+            Notification alertNotif = new NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setContentTitle("🚨 MỆNH LỆNH TỪ " + sender)
+                    .setContentText(cmdDesc)
+                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setDefaults(Notification.DEFAULT_ALL)
+                    .setAutoCancel(true)
+                    .build();
+            manager.notify(CMD_NOTIFICATION_ID, alertNotif);
         }
-        Intent connIntent = new Intent("BT_CONNECTION_STATUS");
-        connIntent.putExtra("connected", false);
-        sendBroadcast(connIntent);
     }
 
+    private void broadcastBtStatus(boolean connected, String message) {
+        Intent btStatusIntent = new Intent("LORA_BT_STATUS");
+        btStatusIntent.putExtra("connected", connected);
+        btStatusIntent.putExtra("status_text", message);
+        sendBroadcast(btStatusIntent);
+    }
+
+    // GỬI DỮ LIỆU QUA EXECUTOR ĐƠN LUỒNG: BẢO ĐẢM THỨ TỰ FIFO, KHÔNG RÒ RỈ THREAD
     public void sendBluetoothData(String data) {
-        new Thread(() -> {
+        if (!isBtConnected || data == null) return;
+
+        btSendExecutor.execute(() -> {
             synchronized (btWriteLock) {
                 if (isBtConnected && btOutputStream != null) {
                     try {
                         btOutputStream.write(data.getBytes());
                         btOutputStream.flush();
                     } catch (Exception e) {
-                        closeBtSocket();
+                        isBtConnected = false;
                     }
                 }
             }
-        }).start();
+        });
     }
 
     @Override
@@ -207,213 +348,43 @@ public class TrackingService extends Service implements LocationListener {
         if (intent != null) {
             if (intent.hasExtra("CMD_SET_RECORDING")) {
                 this.isRecording = intent.getBooleanExtra("CMD_SET_RECORDING", false);
-                if (this.isRecording) {
-                    this.lastRecordedLocation = null;
-                }
-            }
-            if (intent.getBooleanExtra("STOP_EMERGENCY_ALARM", false)) {
-                if (serviceAlertRingtone != null && serviceAlertRingtone.isPlaying()) {
-                    serviceAlertRingtone.stop();
-                }
-                if (serviceVibrator != null) {
-                    serviceVibrator.cancel();
-                }
             }
             if (intent.hasExtra("SEND_LORA_PACKET")) {
                 String packet = intent.getStringExtra("SEND_LORA_PACKET");
-                if (packet != null) {
-                    sendBluetoothData(packet);
-                }
+                sendBluetoothData(packet);
             }
         }
         return START_STICKY;
     }
 
     @Override
-    public void onLocationChanged(Location location) {
-        if (location == null) return;
-        if (location.hasAccuracy() && location.getAccuracy() > 25.0f) {
-            return;
-        }
-
-        myLastLat = location.getLatitude();
-        myLastLng = location.getLongitude();
-        myLastSpeed = location.getSpeed();
-
-        Intent bIntent = new Intent("GPS_LOCATION_UPDATE");
-        bIntent.putExtra("lat", myLastLat);
-        bIntent.putExtra("lng", myLastLng);
-        bIntent.putExtra("speed", myLastSpeed);
-        sendBroadcast(bIntent);
-
-        long now = System.currentTimeMillis();
-        if (now - lastBtSendTime >= 1000) {
-            lastBtSendTime = now;
-            myVehicleId = sharedPreferences.getInt("CFG_VEHICLE_ID", 1);
-            String posPacket = String.format(Locale.US, "#POS,%d,%.6f,%.6f,%.1f\n",
-                    myVehicleId, myLastLat, myLastLng, myLastSpeed);
-            sendBluetoothData(posPacket);
-        }
-
-        if (isRecording) {
-            if (lastRecordedLocation != null) {
-                float dist = location.distanceTo(lastRecordedLocation);
-                long timeDelta = (location.getTime() - lastRecordedLocation.getTime()) / 1000;
-                if (timeDelta <= 0) timeDelta = 1;
-
-                if (dist < 1.2f && location.getSpeed() < 0.3f) {
-                    return;
-                }
-                if ((dist / timeDelta) > 33.3f) {
-                    return;
-                }
-            }
-            lastRecordedLocation = location;
-            dbHelper.insertPoint(myLastLat, myLastLng, myLastSpeed, location.getTime());
-        }
-    }
-
-    private void handleIncomingPosPacket(String rawPacket) {
-        try {
-            String[] parts = rawPacket.split(",");
-            if (parts.length >= 5) {
-                int senderId = Integer.parseInt(parts[1].trim());
-                myVehicleId = sharedPreferences.getInt("CFG_VEHICLE_ID", 1);
-                if (senderId != myVehicleId && myLastLat != 0.0 && myLastLng != 0.0) {
-                    double teamLat = Double.parseDouble(parts[2].trim());
-                    double teamLng = Double.parseDouble(parts[3].trim());
-                    float teamSpeed = Float.parseFloat(parts[4].trim());
-
-                    float[] res = new float[1];
-                    Location.distanceBetween(myLastLat, myLastLng, teamLat, teamLng, res);
-                    float calculatedDist = res[0];
-
-                    if (myLastSpeed < 0.3f && teamSpeed < 0.3f && calculatedDist < 12.0f) {
-                        calculatedDist = Math.min(calculatedDist, 3.0f);
-                    }
-
-                    if (calculatedDist > 50.0f) {
-                        long now = System.currentTimeMillis();
-                        if (now - lastSpacingWarningTime > 6000) {
-                            lastSpacingWarningTime = now;
-                            triggerConvoyWarningAlarm();
-                        }
-                    }
-
-                    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                    if (nm != null) {
-                        String content = String.format(Locale.US, "Cự ly: %.1fm | Tốc độ: %.1f km/h",
-                                calculatedDist, myLastSpeed * 3.6f);
-                        nm.notify(NOTIFICATION_ID, buildTacticalNotification("Hệ thống Định vị Tác chiến", content, false));
-                    }
-
-                    Intent posIntent = new Intent("LORA_POS_UPDATE");
-                    posIntent.putExtra("senderId", senderId);
-                    posIntent.putExtra("lat", teamLat);
-                    posIntent.putExtra("lng", teamLng);
-                    posIntent.putExtra("speed", teamSpeed);
-                    posIntent.putExtra("distance", calculatedDist);
-                    sendBroadcast(posIntent);
-                }
-            }
-        } catch (Exception ignored) {}
-    }
-
-    private void handleIncomingEmergencyCommand(String rawPacket) {
-        try {
-            String[] parts = rawPacket.split(",");
-            if (parts.length >= 4) {
-                String sender = "XE " + parts[1].trim();
-                String cmdDesc = parts[3].trim();
-
-                if (serviceVibrator != null) {
-                    serviceVibrator.vibrate(new long[]{0, 600, 300, 600, 300}, 0);
-                }
-                if (serviceAlertRingtone != null && !serviceAlertRingtone.isPlaying()) {
-                    serviceAlertRingtone.play();
-                }
-
-                if (screenWakeLock != null && !screenWakeLock.isHeld()) {
-                    screenWakeLock.acquire(15000);
-                }
-
-                Intent dialogIntent = new Intent(this, MainActivity.class);
-                dialogIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-                dialogIntent.putExtra("TRIGGER_ALERT_DIALOG", true);
-                dialogIntent.putExtra("CMD_SENDER", sender);
-                dialogIntent.putExtra("CMD_DESC", cmdDesc);
-                startActivity(dialogIntent);
-            }
-        } catch (Exception ignored) {}
-    }
-
-    private void triggerConvoyWarningAlarm() {
-        try {
-            if (serviceVibrator != null) {
-                serviceVibrator.vibrate(new long[]{0, 400, 200, 400}, -1);
-            }
-            if (serviceAlertRingtone != null && !serviceAlertRingtone.isPlaying()) {
-                serviceAlertRingtone.play();
-            }
-        } catch (Exception ignored) {}
-    }
-
-    private Notification buildTacticalNotification(String title, String content, boolean isEmergency) {
-        Intent notificationIntent = new Intent(this, MainActivity.class);
-        notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-                this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT
-        );
-
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this)
-                .setSmallIcon(android.R.drawable.ic_menu_compass)
-                .setContentTitle(title)
-                .setContentText(content)
-                .setContentIntent(pendingIntent)
-                .setOngoing(true)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setPriority(isEmergency ? NotificationCompat.PRIORITY_MAX : NotificationCompat.PRIORITY_HIGH);
-
-        if (isEmergency) {
-            builder.setCategory(NotificationCompat.CATEGORY_ALARM);
-            builder.setFullScreenIntent(pendingIntent, true);
-        }
-
-        return builder.build();
-    }
-
-    @Override
     public void onDestroy() {
+        super.onDestroy();
         isRunning = false;
+        btSendExecutor.shutdownNow();
+
         if (locationManager != null) {
             try {
                 locationManager.removeUpdates(this);
             } catch (SecurityException ignored) {}
         }
-        closeBtSocket();
-        if (btWorkerThread != null) {
-            btWorkerThread.interrupt();
+        synchronized (btWriteLock) {
+            isBtConnected = false;
+            try {
+                if (btSocket != null) btSocket.close();
+            } catch (Exception ignored) {}
         }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
         }
-        if (screenWakeLock != null && screenWakeLock.isHeld()) {
-            screenWakeLock.release();
-        }
-        super.onDestroy();
     }
 
     @Override
-    public IBinder onBind(Intent intent) {
-        return null;
-    }
-
+    public IBinder onBind(Intent intent) { return null; }
     @Override
     public void onStatusChanged(String provider, int status, Bundle extras) {}
-
     @Override
     public void onProviderEnabled(String provider) {}
-
     @Override
     public void onProviderDisabled(String provider) {}
 }
