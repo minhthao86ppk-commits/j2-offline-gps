@@ -92,7 +92,7 @@ public class TrackingService extends Service implements LocationListener {
         // 1. Luồng tự động quét và duy trì kết nối Bluetooth
         startBluetoothWorker();
 
-        // 2. Luồng nhịp tim: Bơm tọa độ sang LoRa theo cơ chế TDMA chống nghẽn
+        // 2. Luồng nhịp tim: Bơm tọa độ sang LoRa liên tục 1 giây/lần
         startTelemetryHeartbeat();
     }
 
@@ -161,9 +161,8 @@ public class TrackingService extends Service implements LocationListener {
         lastValidLocation = location;
         latestGpsLocation = location;
 
-        // Bắn Broadcast nội bộ cập nhật giao diện
+        // Bắn Broadcast cập nhật giao diện
         Intent intent = new Intent("GPS_LOCATION_UPDATE");
-        intent.setPackage(getPackageName());
         intent.putExtra("lat", location.getLatitude());
         intent.putExtra("lng", location.getLongitude());
         intent.putExtra("speed", location.getSpeed());
@@ -180,26 +179,14 @@ public class TrackingService extends Service implements LocationListener {
         }
     }
 
-    // --- LUỒNG NHỊP TIM: BƠM TỌA ĐỘ THEO KHE THỜI GIAN TDMA (TRÁNH XUNG ĐỘT SÓNG LORA) ---
+    // --- LUỒNG NHỊP TIM: BƠM TỌA ĐỘ SANG MẠCH ĐỀU ĐẶN 1 GIÂY/LẦN ---
     private void startTelemetryHeartbeat() {
         telemetryHeartbeatThread = new Thread(() -> {
             while (isRunning) {
                 try {
-                    // Chu kỳ chia khe: 2000ms. Mỗi xe sở hữu 1 khe 300ms riêng biệt.
-                    // Xe 1: 0ms, Xe 2: 300ms, Xe 3: 600ms, Xe 4: 900ms...
-                    int myVehicleId = sharedPreferences.getInt("CFG_VEHICLE_ID", 1);
-                    long cycleMs = 2000L;
-                    int slotIndex = Math.max(0, myVehicleId - 1) % 6; // Hỗ trợ tối đa 6 xe/kênh
-                    long targetSlot = slotIndex * 300L;
-
-                    long now = System.currentTimeMillis();
-                    long currentCyclePos = now % cycleMs;
-                    long delayToSlot = (targetSlot >= currentCyclePos) ? (targetSlot - currentCyclePos) : (cycleMs - currentCyclePos + targetSlot);
-                    if (delayToSlot < 50) delayToSlot += cycleMs;
-
-                    Thread.sleep(delayToSlot);
-
+                    Thread.sleep(1000);
                     if (isBtConnected && latestGpsLocation != null) {
+                        int myVehicleId = sharedPreferences.getInt("CFG_VEHICLE_ID", 1);
                         String posPacket = String.format(Locale.US, "#POS,%d,%.6f,%.6f,%.1f\n",
                                 myVehicleId,
                                 latestGpsLocation.getLatitude(),
@@ -278,12 +265,10 @@ public class TrackingService extends Service implements LocationListener {
 
                 if (receivedPacket.startsWith("#POS")) {
                     Intent posIntent = new Intent("LORA_POS_RECEIVED");
-                    posIntent.setPackage(getPackageName());
                     posIntent.putExtra("raw", receivedPacket);
                     sendBroadcast(posIntent);
                 } else if (receivedPacket.startsWith("#CMD")) {
                     Intent cmdIntent = new Intent("LORA_CMD_RECEIVED");
-                    cmdIntent.setPackage(getPackageName());
                     cmdIntent.putExtra("raw", receivedPacket);
                     sendBroadcast(cmdIntent);
 
@@ -291,7 +276,6 @@ public class TrackingService extends Service implements LocationListener {
 
                 } else if (receivedPacket.startsWith("#ACK")) {
                     Intent ackIntent = new Intent("LORA_ACK_RECEIVED");
-                    ackIntent.setPackage(getPackageName());
                     ackIntent.putExtra("raw", receivedPacket);
                     sendBroadcast(ackIntent);
                 }
@@ -333,7 +317,6 @@ public class TrackingService extends Service implements LocationListener {
 
     private void broadcastBtStatus(boolean connected, String message) {
         Intent btStatusIntent = new Intent("LORA_BT_STATUS");
-        btStatusIntent.setPackage(getPackageName());
         btStatusIntent.putExtra("connected", connected);
         btStatusIntent.putExtra("status_text", message);
         sendBroadcast(btStatusIntent);
