@@ -112,6 +112,19 @@ public class MainActivity extends AppCompatActivity {
     private Vibrator vibrator;
     private Ringtone alertRingtone;
 
+    // Class phụ trợ bóc tách waypoint từ GPX
+    private static class ParsedWaypoint {
+        GeoPoint point;
+        String name;
+        String type;
+
+        ParsedWaypoint(GeoPoint point, String name, String type) {
+            this.point = point;
+            this.name = name;
+            this.type = type;
+        }
+    }
+
     // --- BỘ THU PHÁT BROADCAST TỪ TRACKING SERVICE ---
     private final BroadcastReceiver tacticalServiceReceiver = new BroadcastReceiver() {
         @Override
@@ -369,23 +382,27 @@ public class MainActivity extends AppCompatActivity {
         mapView.invalidate();
     }
 
+    // Hàm tạo và gắn cờ mốc tác chiến lên bản đồ
+    private void addTacticalFlagMarker(GeoPoint point, int flagColor, String typeTag) {
+        Marker flag = new Marker(mapView);
+        flag.setAnchor(0.22f, 0.91f);
+        flag.setIcon(createPlainTacticalFlag(flagColor));
+        flag.setPosition(point);
+        flag.setSubDescription(typeTag);
+        flag.setInfoWindow(null);
+
+        mapView.getOverlays().add(flag);
+        tacticalFlagsList.add(flag);
+    }
+
     private void plantCustomTacticalFlag(int flagColor, String typeTag) {
         if (myCurrentPoint == null) {
             Toast.makeText(this, "Chưa khóa được vị trí GPS!", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        Marker flag = new Marker(mapView);
-        flag.setAnchor(0.22f, 0.91f);
-        flag.setIcon(createPlainTacticalFlag(flagColor));
-        flag.setPosition(myCurrentPoint);
-        flag.setSubDescription(typeTag);
-        flag.setInfoWindow(null);
-
-        mapView.getOverlays().add(flag);
-        tacticalFlagsList.add(flag);
+        addTacticalFlagMarker(myCurrentPoint, flagColor, typeTag);
         mapView.invalidate();
-
         Toast.makeText(this, "Đã cắm cờ mốc: " + typeTag, Toast.LENGTH_SHORT).show();
     }
 
@@ -463,7 +480,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ĐÃ BỎ CẢNH BÁO 50M: HIỂN THỊ CỰ LY ÊM ÁI, KHÔNG ĐỔI MÀU ĐỎ, KHÔNG RUNG, KHÔNG CHUÔNG
     private void evaluateConvoySpacing() {
         if (myCurrentPoint == null || teammatePoint == null) {
             if (myCurrentPoint != null && currentMode != MODE_RECORDING) {
@@ -485,7 +501,6 @@ public class MainActivity extends AppCompatActivity {
         );
         float distanceMeters = results[0];
 
-        // Luôn hiển thị màu xanh thanh lịch và cập nhật thông số cự ly thực
         tvStats.setTextColor(Color.parseColor("#00897B"));
         tvStats.setText(String.format(Locale.US, "Cự ly đến Xe %02d: %.1f m\nĐồng đội: %.1f km/h",
                 teammateId, distanceMeters, teammateSpeed));
@@ -584,6 +599,11 @@ public class MainActivity extends AppCompatActivity {
                 finishFlagMarker = null;
             }
 
+            for (Marker m : tacticalFlagsList) {
+                mapView.getOverlays().remove(m);
+            }
+            tacticalFlagsList.clear();
+
             currentMode = MODE_STANDBY;
             updateRoleDisplay();
             mapView.invalidate();
@@ -605,11 +625,23 @@ public class MainActivity extends AppCompatActivity {
         trackLine.getActualPoints().clear();
         trackLine.setVisible(true);
 
+        // Dọn cờ kết thúc cũ và cờ mốc cũ trước khi ghi mới
         if (finishFlagMarker != null) {
             finishFlagMarker.setEnabled(false);
             mapView.getOverlays().remove(finishFlagMarker);
             finishFlagMarker = null;
         }
+
+        if (startFlagMarker != null) {
+            startFlagMarker.setEnabled(false);
+            mapView.getOverlays().remove(startFlagMarker);
+            startFlagMarker = null;
+        }
+
+        for (Marker m : tacticalFlagsList) {
+            mapView.getOverlays().remove(m);
+        }
+        tacticalFlagsList.clear();
 
         if (myCurrentPoint != null) {
             plantStartFlag(myCurrentPoint);
@@ -628,6 +660,7 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "Bắt đầu ghi vết & Cắm cờ Xuất phát!", Toast.LENGTH_SHORT).show();
     }
 
+    // SỬA LỖI 1: Đảm bảo giữ cờ xanh, cắm cờ đỏ khi kết thúc và lưu đủ vào GPX
     private void stopModeRecordAndExport() {
         Intent intent = new Intent(this, TrackingService.class);
         intent.putExtra("CMD_SET_RECORDING", false);
@@ -638,8 +671,35 @@ public class MainActivity extends AppCompatActivity {
         btnStartRecord.setEnabled(true);
         btnStopRecord.setEnabled(false);
 
-        if (myCurrentPoint != null) {
-            plantFinishFlag(myCurrentPoint);
+        // 1. Phục hồi cờ xanh xuất phát nếu bị mất trong quá trình ứng dụng chạy nền
+        if (startFlagMarker == null || startFlagMarker.getPosition() == null) {
+            Cursor c = dbHelper.getAllPoints();
+            if (c != null && c.moveToFirst()) {
+                GeoPoint startPoint = new GeoPoint(
+                        c.getDouble(c.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LAT)),
+                        c.getDouble(c.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LNG))
+                );
+                plantStartFlag(startPoint);
+                c.close();
+            } else if (myCurrentPoint != null) {
+                plantStartFlag(myCurrentPoint);
+            }
+        }
+
+        // 2. Cắm cờ đỏ tại đích đến kết thúc
+        GeoPoint finishPoint = myCurrentPoint;
+        if (finishPoint == null) {
+            Cursor c = dbHelper.getAllPoints();
+            if (c != null && c.moveToLast()) {
+                finishPoint = new GeoPoint(
+                        c.getDouble(c.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LAT)),
+                        c.getDouble(c.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LNG))
+                );
+                c.close();
+            }
+        }
+        if (finishPoint != null) {
+            plantFinishFlag(finishPoint);
         }
 
         exportGpxFile();
@@ -670,52 +730,139 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
+    // SỬA LỖI 2: Đọc toàn bộ các waypoint và khôi phục cờ xanh, cờ đỏ, cờ vàng, cờ tím
     private void loadPlannedGpx(File gpxFile) {
         List<GeoPoint> points = new ArrayList<>();
-        GeoPoint gpxStartPoint = null;
+        List<ParsedWaypoint> gpxWaypoints = new ArrayList<>();
 
         try (InputStream inputStream = new FileInputStream(gpxFile)) {
             XmlPullParser parser = Xml.newPullParser();
             parser.setInput(inputStream, null);
             int eventType = parser.getEventType();
 
+            Double currentWptLat = null;
+            Double currentWptLon = null;
+            StringBuilder currentWptName = new StringBuilder();
+            StringBuilder currentWptType = new StringBuilder();
+            boolean insideWpt = false;
+            String currentTag = "";
+
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 if (eventType == XmlPullParser.START_TAG) {
-                    String name = parser.getName();
-                    if ("trkpt".equalsIgnoreCase(name) || "rtept".equalsIgnoreCase(name)) {
+                    String tagName = parser.getName();
+                    if ("trkpt".equalsIgnoreCase(tagName) || "rtept".equalsIgnoreCase(tagName)) {
                         String latStr = parser.getAttributeValue(null, "lat");
                         String lonStr = parser.getAttributeValue(null, "lon");
                         if (latStr != null && lonStr != null) {
                             points.add(new GeoPoint(Double.parseDouble(latStr), Double.parseDouble(lonStr)));
                         }
-                    } else if ("wpt".equalsIgnoreCase(name)) {
+                    } else if ("wpt".equalsIgnoreCase(tagName)) {
+                        insideWpt = true;
                         String latStr = parser.getAttributeValue(null, "lat");
                         String lonStr = parser.getAttributeValue(null, "lon");
-                        if (latStr != null && lonStr != null && gpxStartPoint == null) {
-                            gpxStartPoint = new GeoPoint(Double.parseDouble(latStr), Double.parseDouble(lonStr));
+                        if (latStr != null && lonStr != null) {
+                            currentWptLat = Double.parseDouble(latStr);
+                            currentWptLon = Double.parseDouble(lonStr);
+                        } else {
+                            currentWptLat = null;
+                            currentWptLon = null;
                         }
+                        currentWptName.setLength(0);
+                        currentWptType.setLength(0);
+                    } else if (insideWpt) {
+                        currentTag = tagName.toLowerCase();
+                    }
+                } else if (eventType == XmlPullParser.TEXT) {
+                    if (insideWpt && currentTag != null && !currentTag.isEmpty()) {
+                        String text = parser.getText();
+                        if (text != null) {
+                            if ("name".equals(currentTag)) {
+                                currentWptName.append(text.trim());
+                            } else if ("type".equals(currentTag) || "sym".equals(currentTag)) {
+                                currentWptType.append(text.trim());
+                            }
+                        }
+                    }
+                } else if (eventType == XmlPullParser.END_TAG) {
+                    String tagName = parser.getName();
+                    if ("wpt".equalsIgnoreCase(tagName)) {
+                        if (currentWptLat != null && currentWptLon != null) {
+                            gpxWaypoints.add(new ParsedWaypoint(
+                                    new GeoPoint(currentWptLat, currentWptLon),
+                                    currentWptName.toString(),
+                                    currentWptType.toString()
+                            ));
+                        }
+                        insideWpt = false;
+                        currentTag = "";
+                    } else if (insideWpt) {
+                        currentTag = "";
                     }
                 }
                 eventType = parser.next();
             }
 
-            if (!points.isEmpty()) {
+            if (!points.isEmpty() || !gpxWaypoints.isEmpty()) {
                 trackLine.getActualPoints().clear();
                 trackLine.setVisible(false);
 
+                // Dọn sạch các cờ cũ trước khi tải lộ trình mới
                 if (finishFlagMarker != null) {
                     finishFlagMarker.setEnabled(false);
                     mapView.getOverlays().remove(finishFlagMarker);
                     finishFlagMarker = null;
                 }
+                if (startFlagMarker != null) {
+                    startFlagMarker.setEnabled(false);
+                    mapView.getOverlays().remove(startFlagMarker);
+                    startFlagMarker = null;
+                }
+                for (Marker m : tacticalFlagsList) {
+                    mapView.getOverlays().remove(m);
+                }
+                tacticalFlagsList.clear();
 
-                plannedGpxLine.setPoints(points);
-                mapView.getController().animateTo(points.get(0));
-                mapView.getController().setZoom(16.0);
+                GeoPoint parsedStartPoint = null;
+                GeoPoint parsedFinishPoint = null;
 
-                plantStartFlag(gpxStartPoint != null ? gpxStartPoint : points.get(0));
+                // Cắm lại đầy đủ các màu cờ dựa theo dữ liệu waypoint
+                for (ParsedWaypoint wpt : gpxWaypoints) {
+                    String nameUpper = wpt.name.toUpperCase();
+                    String typeUpper = wpt.type.toUpperCase();
+
+                    if (nameUpper.contains("XP") || typeUpper.contains("GREEN") || nameUpper.contains("START")) {
+                        parsedStartPoint = wpt.point;
+                        plantStartFlag(wpt.point);
+                    } else if (nameUpper.contains("DICH") || nameUpper.contains("ĐÍCH") || typeUpper.contains("RED") || nameUpper.contains("FINISH") || nameUpper.contains("END")) {
+                        parsedFinishPoint = wpt.point;
+                        plantFinishFlag(wpt.point);
+                    } else if (typeUpper.contains("YELLOW") || nameUpper.contains("YELLOW") || nameUpper.contains("VÀNG")) {
+                        addTacticalFlagMarker(wpt.point, Color.parseColor("#FFD600"), "YELLOW");
+                    } else if (typeUpper.contains("PURPLE") || nameUpper.contains("PURPLE") || nameUpper.contains("TÍM")) {
+                        addTacticalFlagMarker(wpt.point, Color.parseColor("#AA00FF"), "PURPLE");
+                    } else {
+                        addTacticalFlagMarker(wpt.point, Color.parseColor("#FFD600"), wpt.name.isEmpty() ? "FLAG" : wpt.name);
+                    }
+                }
+
+                // Dự phòng nếu file GPX không có thẻ <wpt> riêng: Lấy điểm đầu và điểm cuối của đường track
+                if (!points.isEmpty()) {
+                    if (parsedStartPoint == null) {
+                        plantStartFlag(points.get(0));
+                    }
+                    if (parsedFinishPoint == null && points.size() > 1) {
+                        plantFinishFlag(points.get(points.size() - 1));
+                    }
+
+                    plannedGpxLine.setPoints(points);
+                    mapView.getController().animateTo(points.get(0));
+                    mapView.getController().setZoom(16.0);
+                } else if (parsedStartPoint != null) {
+                    mapView.getController().animateTo(parsedStartPoint);
+                    mapView.getController().setZoom(16.0);
+                }
+
                 mapView.invalidate();
-
                 currentMode = MODE_FOLLOW_ROUTE;
                 tvQuickStatus.setText("LỘ TRÌNH: BÁM ĐƯỜNG GPX");
                 drawerLayout.closeDrawer(GravityCompat.START);
@@ -727,6 +874,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // SỬA LỖI 1: Xuất đầy đủ cả cờ xanh (XP), cờ đỏ (DICH) và cờ mốc tác chiến
     private void exportGpxFile() {
         Cursor cursor = dbHelper.getAllPoints();
         if (cursor == null || cursor.getCount() == 0) {
@@ -744,15 +892,44 @@ public class MainActivity extends AppCompatActivity {
         try (FileWriter writer = new FileWriter(gpxFile)) {
             writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"J2OfflineTracker\">\n");
 
-            if (startFlagMarker != null && startFlagMarker.isEnabled() && startFlagMarker.getPosition() != null) {
-                writer.write(String.format(Locale.US, "  <wpt lat=\"%.6f\" lon=\"%.6f\">\n    <name>XP</name>\n    <type>GREEN</type>\n  </wpt>\n",
-                        startFlagMarker.getPosition().getLatitude(), startFlagMarker.getPosition().getLongitude()));
-            }
-            if (finishFlagMarker != null && finishFlagMarker.isEnabled() && finishFlagMarker.getPosition() != null) {
-                writer.write(String.format(Locale.US, "  <wpt lat=\"%.6f\" lon=\"%.6f\">\n    <name>DICH</name>\n    <type>RED</type>\n  </wpt>\n",
-                        finishFlagMarker.getPosition().getLatitude(), finishFlagMarker.getPosition().getLongitude()));
+            // Tọa độ cờ xanh (Xuất phát)
+            GeoPoint startPoint = (startFlagMarker != null && startFlagMarker.getPosition() != null)
+                    ? startFlagMarker.getPosition() : null;
+
+            // Tọa độ cờ đỏ (Đích đến)
+            GeoPoint finishPoint = (finishFlagMarker != null && finishFlagMarker.getPosition() != null)
+                    ? finishFlagMarker.getPosition() : null;
+
+            if (cursor.moveToFirst()) {
+                if (startPoint == null) {
+                    startPoint = new GeoPoint(
+                            cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LAT)),
+                            cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LNG))
+                    );
+                }
+                if (cursor.moveToLast()) {
+                    if (finishPoint == null) {
+                        finishPoint = new GeoPoint(
+                                cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LAT)),
+                                cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LNG))
+                        );
+                    }
+                }
             }
 
+            // Ghi cờ xanh (XP)
+            if (startPoint != null) {
+                writer.write(String.format(Locale.US, "  <wpt lat=\"%.6f\" lon=\"%.6f\">\n    <name>XP</name>\n    <type>GREEN</type>\n  </wpt>\n",
+                        startPoint.getLatitude(), startPoint.getLongitude()));
+            }
+
+            // Ghi cờ đỏ (DICH)
+            if (finishPoint != null) {
+                writer.write(String.format(Locale.US, "  <wpt lat=\"%.6f\" lon=\"%.6f\">\n    <name>DICH</name>\n    <type>RED</type>\n  </wpt>\n",
+                        finishPoint.getLatitude(), finishPoint.getLongitude()));
+            }
+
+            // Ghi các cờ mốc tác chiến (Vàng, Tím)
             for (Marker m : tacticalFlagsList) {
                 if (m != null && m.getPosition() != null) {
                     String tag = m.getSubDescription() != null ? m.getSubDescription() : "FLAG";
@@ -761,9 +938,11 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
+            // Ghi chuỗi vết trkpt
             writer.write("  <trk>\n    <name>Track " + timeStamp + "</name>\n    <trkseg>\n");
             SimpleDateFormat isoFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
 
+            cursor.moveToPosition(-1); // Đưa con trỏ về trước điểm đầu tiên để ghi đủ toàn bộ các điểm
             while (cursor.moveToNext()) {
                 double lat = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LAT));
                 double lng = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LNG));
@@ -891,16 +1070,25 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ĐỒNG BỘ LẠI ĐƯỜNG VẼ TỪ SQLITE KHI MỞ LẠI ỨNG DỤNG SAU KHI TẮT MÀN HÌNH
+    // ĐỒNG BỘ LẠI ĐƯỜNG VẼ VÀ CỜ XUẤT PHÁT KHI MỞ LẠI ỨNG DỤNG
     private void reloadTrackFromDatabase() {
         Cursor cursor = dbHelper.getAllPoints();
         if (cursor == null) return;
         try {
             trackLine.getActualPoints().clear();
+            GeoPoint firstPoint = null;
             while (cursor.moveToNext()) {
                 double lat = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LAT));
                 double lng = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LNG));
-                trackLine.addPoint(new GeoPoint(lat, lng));
+                GeoPoint pt = new GeoPoint(lat, lng);
+                if (firstPoint == null) {
+                    firstPoint = pt;
+                }
+                trackLine.addPoint(pt);
+            }
+            // Khôi phục lại cờ xanh nếu bị mất khi ứng dụng vào chạy nền
+            if (startFlagMarker == null && firstPoint != null) {
+                plantStartFlag(firstPoint);
             }
             mapView.invalidate();
         } catch (Exception ignored) {
