@@ -17,7 +17,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.PowerManager;
-import android.preference.PreferenceManager; // Dùng thư viện chuẩn của Android SDK gốc, tránh lỗi thiếu dependency
+import android.preference.PreferenceManager;
 import androidx.core.app.NotificationCompat;
 
 import java.io.BufferedReader;
@@ -39,7 +39,7 @@ public class TrackingService extends Service implements LocationListener {
     private DatabaseHelper dbHelper;
     private PowerManager.WakeLock wakeLock;
 
-    // Vị trí phục vụ bộ lọc chống trôi tọa độ
+    // Vị trí phục vụ bộ lọc chống trôi
     private Location lastValidLocation = null;
     private Location latestGpsLocation = null;
 
@@ -113,11 +113,10 @@ public class TrackingService extends Service implements LocationListener {
     private void startLocationUpdates() {
         try {
             if (locationManager != null) {
-                // Đặt minDistance = 1.0 mét để phần cứng tự khử các rung nhiễu vi mô
                 locationManager.requestLocationUpdates(
                         LocationManager.GPS_PROVIDER,
                         1000L,
-                        1.0f,
+                        0.0f,
                         this
                 );
             }
@@ -126,13 +125,13 @@ public class TrackingService extends Service implements LocationListener {
         }
     }
 
-    // --- BỘ LỌC CHỐNG TRÔI TỌA ĐỘ VÀ KHỬ NHIỄU TUYỆT ĐỐI ---
+    // --- BỘ LỌC CHỐNG TRÔI TỌA ĐỘ VÀ KHỬ NHIỄU DÃ CHIẾN ---
     @Override
     public void onLocationChanged(Location location) {
         if (location == null) return;
 
-        // 1. LỌC BÁN KÍNH SAI SỐ (ACCURACY): Bỏ qua điểm nếu sai số > 15m
-        if (location.hasAccuracy() && location.getAccuracy() > 15.0f) {
+        // 1. LỌC BÁN KÍNH SAI SỐ: Giữ ở 25.0m để đảm bảo độ nhạy khi pin yếu hoặc thời tiết xấu
+        if (location.hasAccuracy() && location.getAccuracy() > 25.0f) {
             return;
         }
 
@@ -148,13 +147,13 @@ public class TrackingService extends Service implements LocationListener {
 
             // 3. BỘ LỌC ĐỨNG YÊN (DEADBAND FILTER):
             // Nếu dịch chuyển < 2.5m HOẶC tốc độ < 0.8 m/s (~3 km/h) và cự ly < 4.0m
-            // -> Xác định xe đang dừng, giữ nguyên tọa độ cũ, triệt tiêu hoàn toàn hiện tượng trôi dạt
+            // -> Xe đang dừng, giữ nguyên tọa độ cũ, triệt tiêu hoàn toàn búi dây trôi dạt
             if (distance < 2.5f || (location.hasSpeed() && location.getSpeed() < 0.8f && distance < 4.0f)) {
                 if (latestGpsLocation != null) {
                     latestGpsLocation.setSpeed(0.0f);
                     latestGpsLocation.setTime(location.getTime());
                 }
-                return; // KHÔNG broadcast điểm trôi, KHÔNG ghi vào SQLite
+                return;
             }
         }
 
@@ -269,12 +268,10 @@ public class TrackingService extends Service implements LocationListener {
                     posIntent.putExtra("raw", receivedPacket);
                     sendBroadcast(posIntent);
                 } else if (receivedPacket.startsWith("#CMD")) {
-                    // 1. Bắn Broadcast lên MainActivity (khi app đang mở)
                     Intent cmdIntent = new Intent("LORA_CMD_RECEIVED");
                     cmdIntent.putExtra("raw", receivedPacket);
                     sendBroadcast(cmdIntent);
 
-                    // 2. PHÁT THÔNG BÁO KHẨN CẤP TRỰC TIẾP TỪ SERVICE (dù app đang ẩn hoặc khóa màn hình)
                     triggerTacticalAlertNotification(receivedPacket);
 
                 } else if (receivedPacket.startsWith("#ACK")) {
@@ -325,7 +322,6 @@ public class TrackingService extends Service implements LocationListener {
         sendBroadcast(btStatusIntent);
     }
 
-    // GỬI DỮ LIỆU QUA EXECUTOR ĐƠN LUỒNG: BẢO ĐẢM THỨ TỰ FIFO, KHÔNG GÂY RÒ RỈ BỘ NHỚ
     public void sendBluetoothData(String data) {
         if (!isBtConnected || data == null) return;
 
