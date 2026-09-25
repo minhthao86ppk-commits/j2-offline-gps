@@ -23,7 +23,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
-import android.preference.PreferenceManager; // Sử dụng thư viện SDK gốc, tránh lỗi thiếu thư viện
+import android.preference.PreferenceManager;
 import android.util.Xml;
 import android.widget.Button;
 import android.widget.TextView;
@@ -63,7 +63,6 @@ import java.util.Set;
 public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQUEST_CODE = 200;
-    private static final float CONVOY_SPACING_LIMIT_METERS = 50.0f;
 
     // Các chế độ vận hành
     private static final int MODE_STANDBY = 0;
@@ -103,17 +102,15 @@ public class MainActivity extends AppCompatActivity {
     private Marker finishFlagMarker;
     private final List<Marker> tacticalFlagsList = new ArrayList<>();
 
-    // Tọa độ & Đánh giá khoảng cách
+    // Tọa độ & Vận tốc
     private GeoPoint myCurrentPoint = null;
     private GeoPoint teammatePoint = null;
     private float teammateSpeed = 0.0f;
-    private long lastSpacingAlertTime = 0;
 
-    // CSDL & Chuông / Rung
+    // CSDL & Chuông / Rung tác chiến (#CMD)
     private DatabaseHelper dbHelper;
     private Vibrator vibrator;
     private Ringtone alertRingtone;
-    private Ringtone warningBeep;
 
     // --- BỘ THU PHÁT BROADCAST TỪ TRACKING SERVICE ---
     private final BroadcastReceiver tacticalServiceReceiver = new BroadcastReceiver() {
@@ -146,6 +143,7 @@ public class MainActivity extends AppCompatActivity {
                         mapView.getController().animateTo(myCurrentPoint);
                     }
 
+                    // Cập nhật thông số cự ly liên tục
                     evaluateConvoySpacing();
                     mapView.invalidate();
                     break;
@@ -197,9 +195,6 @@ public class MainActivity extends AppCompatActivity {
         if (alarmUri == null) alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
         alertRingtone = RingtoneManager.getRingtone(this, alarmUri);
 
-        Uri notifUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-        warningBeep = RingtoneManager.getRingtone(this, notifUri);
-
         initViews();
         setupMapView();
         setupMenuEvents();
@@ -208,13 +203,16 @@ public class MainActivity extends AppCompatActivity {
         updateRoleDisplay();
         checkPermissionsAndInit();
 
+        // CHỐNG BẤM NHẦM: NHẤN GIỮ 2 GIÂY ĐỂ ĐỔI VAI TRÒ XE
         tvQuickStatus.setOnLongClickListener(v -> {
             showRoleSelectionDialog();
             return true;
         });
 
+        // Chạm vào thông số để đổi file bản đồ ngoại tuyến tức thời
         tvStats.setOnClickListener(v -> pickOfflineMap());
 
+        // KÍCH HOẠT SERVICE NGẦM GIỮ KẾT NỐI VĨNH VIỄN
         Intent serviceIntent = new Intent(this, TrackingService.class);
         ContextCompat.startForegroundService(this, serviceIntent);
     }
@@ -248,6 +246,7 @@ public class MainActivity extends AppCompatActivity {
         mapView.setMultiTouchControls(true);
         mapView.setUseDataConnection(false);
 
+        // Tuyến GPX mẫu: Hồng dạ quang (#E91E63)
         plannedGpxLine = new Polyline(mapView);
         plannedGpxLine.setColor(Color.parseColor("#E91E63"));
         plannedGpxLine.setWidth(9.0f);
@@ -255,6 +254,7 @@ public class MainActivity extends AppCompatActivity {
         plannedGpxLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
         mapView.getOverlays().add(plannedGpxLine);
 
+        // Vệt thực tế: Xanh dương đậm (#003399)
         trackLine = new Polyline(mapView);
         trackLine.setColor(Color.parseColor("#003399"));
         trackLine.setWidth(7.0f);
@@ -262,6 +262,7 @@ public class MainActivity extends AppCompatActivity {
         trackLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);
         mapView.getOverlays().add(trackLine);
 
+        // Con trỏ vị trí xe ta
         currentMarker = new Marker(mapView);
         currentMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
         currentMarker.setIcon(createVehicleDot(myVehicleId == 1 ? Color.parseColor("#007AFF") : Color.parseColor("#00C853")));
@@ -269,6 +270,7 @@ public class MainActivity extends AppCompatActivity {
         currentMarker.setVisible(false);
         mapView.getOverlays().add(currentMarker);
 
+        // Con trỏ xe bạn (LoRa Telemetry) màu cam dã chiến
         teammateMarker = new Marker(mapView);
         teammateMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
         teammateMarker.setIcon(createVehicleDot(Color.parseColor("#FF9100")));
@@ -303,6 +305,7 @@ public class MainActivity extends AppCompatActivity {
         return new BitmapDrawable(getResources(), bitmap);
     }
 
+    // CỜ TRƠN HOÀN TOÀN: KHÔNG KÝ HIỆU, KHÔNG CHỮ VIẾT
     private BitmapDrawable createPlainTacticalFlag(int flagColor) {
         int w = 64;
         int h = 64;
@@ -436,6 +439,7 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
+    // --- HIỂN THỊ XE BẠN VÀ TÍNH CỰ LY THỰC TẾ ---
     private void parseTeammatePosition(String rawPacket) {
         String[] parts = rawPacket.split(",");
         if (parts.length >= 5) {
@@ -459,6 +463,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ĐÃ BỎ CẢNH BÁO 50M: HIỂN THỊ CỰ LY ÊM ÁI, KHÔNG ĐỔI MÀU ĐỎ, KHÔNG RUNG, KHÔNG CHUÔNG
     private void evaluateConvoySpacing() {
         if (myCurrentPoint == null || teammatePoint == null) {
             if (myCurrentPoint != null && currentMode != MODE_RECORDING) {
@@ -480,36 +485,10 @@ public class MainActivity extends AppCompatActivity {
         );
         float distanceMeters = results[0];
 
-        if (distanceMeters > CONVOY_SPACING_LIMIT_METERS) {
-            tvStats.setTextColor(Color.RED);
-            tvStats.setText(String.format(Locale.US, "⚠️ DÃN CỰ LY: %.1f m (>50m)!\nĐồng đội (Xe %02d): %.1f km/h",
-                    distanceMeters, teammateId, teammateSpeed));
-            triggerSpacingAlert();
-        } else {
-            tvStats.setTextColor(Color.parseColor("#00897B"));
-            tvStats.setText(String.format(Locale.US, "✅ CỰ LY ĐỘI HÌNH: %.1f m (Chuẩn <= 50m)\nĐồng đội (Xe %02d): %.1f km/h",
-                    distanceMeters, teammateId, teammateSpeed));
-        }
-    }
-
-    private void triggerSpacingAlert() {
-        long now = System.currentTimeMillis();
-        if (now - lastSpacingAlertTime > 6000) {
-            lastSpacingAlertTime = now;
-            try {
-                if (vibrator != null) {
-                    long[] pattern = {0, 300, 150, 300};
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1));
-                    } else {
-                        vibrator.vibrate(pattern, -1);
-                    }
-                }
-                if (warningBeep != null && !warningBeep.isPlaying()) {
-                    warningBeep.play();
-                }
-            } catch (Exception ignored) {}
-        }
+        // Luôn hiển thị màu xanh thanh lịch và cập nhật thông số cự ly thực
+        tvStats.setTextColor(Color.parseColor("#00897B"));
+        tvStats.setText(String.format(Locale.US, "Cự ly đến Xe %02d: %.1f m\nĐồng đội: %.1f km/h",
+                teammateId, distanceMeters, teammateSpeed));
     }
 
     private void parseTacticalCommand(String rawPacket) {
@@ -912,6 +891,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ĐỒNG BỘ LẠI ĐƯỜNG VẼ TỪ SQLITE KHI MỞ LẠI ỨNG DỤNG SAU KHI TẮT MÀN HÌNH
     private void reloadTrackFromDatabase() {
         Cursor cursor = dbHelper.getAllPoints();
         if (cursor == null) return;
@@ -965,7 +945,6 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         mapView.onDetach();
         if (alertRingtone != null && alertRingtone.isPlaying()) alertRingtone.stop();
-        if (warningBeep != null && warningBeep.isPlaying()) warningBeep.stop();
         if (vibrator != null) vibrator.cancel();
     }
 }
