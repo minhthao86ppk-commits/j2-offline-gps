@@ -86,9 +86,10 @@ public class MainActivity extends AppCompatActivity {
     private Button btnStartRecord, btnStopRecord;
     private Button btnLoadFollowGpx, btnClearRoute;
 
-    // 7 nút lệnh tác chiến LoRa (#CMD)
+    // Cụm nút lệnh tác chiến LoRa (#CMD) - 7 lệnh cơ bản & 3 lệnh điều hướng
     private Button btnCmdStop, btnCmdResume, btnCmdSpeedUp, btnCmdSlowDown;
     private Button btnCmdCloseSpacing, btnCmdOpenSpacing, btnCmdEmergency;
+    private Button btnCmdTurnLeft, btnCmdGoStraight, btnCmdTurnRight;
 
     // Cụm cờ mốc dã chiến
     private Button btnFlagYellow, btnFlagPurple, btnClearFlags;
@@ -249,6 +250,11 @@ public class MainActivity extends AppCompatActivity {
         btnCmdCloseSpacing = findViewById(R.id.btnCmdCloseSpacing);
         btnCmdOpenSpacing = findViewById(R.id.btnCmdOpenSpacing);
         btnCmdEmergency = findViewById(R.id.btnCmdEmergency);
+
+        // Ánh xạ 3 nút điều hướng mới
+        btnCmdTurnLeft = findViewById(R.id.btnCmdTurnLeft);
+        btnCmdGoStraight = findViewById(R.id.btnCmdGoStraight);
+        btnCmdTurnRight = findViewById(R.id.btnCmdTurnRight);
 
         btnFlagYellow = findViewById(R.id.btnFlagYellow);
         btnFlagPurple = findViewById(R.id.btnFlagPurple);
@@ -516,6 +522,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupCommandButtons() {
+        // Cụm 7 lệnh chiến thuật cơ bản
         btnCmdStop.setOnClickListener(v -> sendTacticalCommand("0x01", "DỪNG XE"));
         btnCmdResume.setOnClickListener(v -> sendTacticalCommand("0x02", "TIẾP TỤC HÀNH QUÂN"));
         btnCmdSpeedUp.setOnClickListener(v -> sendTacticalCommand("0x03", "TĂNG TỐC"));
@@ -523,6 +530,17 @@ public class MainActivity extends AppCompatActivity {
         btnCmdCloseSpacing.setOnClickListener(v -> sendTacticalCommand("0x05", "THU CỰ LY"));
         btnCmdOpenSpacing.setOnClickListener(v -> sendTacticalCommand("0x06", "DÃN CỰ LY"));
         btnCmdEmergency.setOnClickListener(v -> sendTacticalCommand("0x99", "TÌNH HUỐNG KHẨN CẤP"));
+
+        // Cụm 3 lệnh điều hướng bổ sung (có kiểm tra an toàn chống NullPointer)
+        if (btnCmdTurnLeft != null) {
+            btnCmdTurnLeft.setOnClickListener(v -> sendTacticalCommand("0x08", "RẼ TRÁI"));
+        }
+        if (btnCmdGoStraight != null) {
+            btnCmdGoStraight.setOnClickListener(v -> sendTacticalCommand("0x0A", "ĐI THẲNG"));
+        }
+        if (btnCmdTurnRight != null) {
+            btnCmdTurnRight.setOnClickListener(v -> sendTacticalCommand("0x09", "RẼ PHẢI"));
+        }
     }
 
     private void sendTacticalCommand(String cmdCode, String cmdDescription) {
@@ -660,7 +678,6 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "Bắt đầu ghi vết & Cắm cờ Xuất phát!", Toast.LENGTH_SHORT).show();
     }
 
-    // SỬA LỖI 1: Đảm bảo giữ cờ xanh, cắm cờ đỏ khi kết thúc và lưu đủ vào GPX
     private void stopModeRecordAndExport() {
         Intent intent = new Intent(this, TrackingService.class);
         intent.putExtra("CMD_SET_RECORDING", false);
@@ -730,7 +747,6 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    // SỬA LỖI 2: Đọc toàn bộ các waypoint và khôi phục cờ xanh, cờ đỏ, cờ vàng, cờ tím
     private void loadPlannedGpx(File gpxFile) {
         List<GeoPoint> points = new ArrayList<>();
         List<ParsedWaypoint> gpxWaypoints = new ArrayList<>();
@@ -874,7 +890,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // SỬA LỖI 1: Xuất đầy đủ cả cờ xanh (XP), cờ đỏ (DICH) và cờ mốc tác chiến
     private void exportGpxFile() {
         Cursor cursor = dbHelper.getAllPoints();
         if (cursor == null || cursor.getCount() == 0) {
