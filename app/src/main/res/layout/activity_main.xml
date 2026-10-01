@@ -31,9 +31,8 @@
             android:layout_alignParentStart="true"
             android:layout_margin="12dp" />
 
-        <!-- Bảng trạng thái gọn góc phải (Đã gán ID layoutHeader để bắt sự kiện nhấn giữ 2s đổi vai trò) -->
+        <!-- Bảng trạng thái gọn góc phải -->
         <LinearLayout
-            android:id="@+id/layoutHeader"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -388,12 +387,12 @@
                 android:background="#F0F0F0"
                 android:layout_marginStart="20dp" />
 
-            <!-- === 3 LỆNH ĐIỀU HƯỚNG MỚI BỔ SUNG === -->
+            <!-- 3 LỆNH ĐIỀU HƯỚNG TỐI GIẢN (CHỮ THUẦN, KHÔNG BIỂU TƯỢNG) -->
             <Button
                 android:id="@+id/btnCmdTurnLeft"
                 android:layout_width="match_parent"
                 android:layout_height="46dp"
-                android:text="⬅️ Rẽ trái"
+                android:text="Rẽ trái"
                 android:gravity="start|center_vertical"
                 android:paddingStart="20dp"
                 android:textSize="13sp"
@@ -411,7 +410,7 @@
                 android:id="@+id/btnCmdGoStraight"
                 android:layout_width="match_parent"
                 android:layout_height="46dp"
-                android:text="⬆️ Đi thẳng"
+                android:text="Đi thẳng"
                 android:gravity="start|center_vertical"
                 android:paddingStart="20dp"
                 android:textSize="13sp"
@@ -429,7 +428,7 @@
                 android:id="@+id/btnCmdTurnRight"
                 android:layout_width="match_parent"
                 android:layout_height="46dp"
-                android:text="➡️ Rẽ phải"
+                android:text="Rẽ phải"
                 android:gravity="start|center_vertical"
                 android:paddingStart="20dp"
                 android:textSize="13sp"
@@ -443,12 +442,11 @@
                 android:background="#F0F0F0"
                 android:layout_marginStart="20dp" />
 
-            <!-- LỆNH KHẨN CẤP -->
             <Button
                 android:id="@+id/btnCmdEmergency"
                 android:layout_width="match_parent"
                 android:layout_height="46dp"
-                android:text="🚨 Tình huống khẩn cấp"
+                android:text="Tình huống khẩn cấp"
                 android:gravity="start|center_vertical"
                 android:paddingStart="20dp"
                 android:textSize="13sp"
