@@ -251,7 +251,6 @@ public class MainActivity extends AppCompatActivity {
         btnCmdOpenSpacing = findViewById(R.id.btnCmdOpenSpacing);
         btnCmdEmergency = findViewById(R.id.btnCmdEmergency);
 
-        // Ánh xạ 3 nút điều hướng mới
         btnCmdTurnLeft = findViewById(R.id.btnCmdTurnLeft);
         btnCmdGoStraight = findViewById(R.id.btnCmdGoStraight);
         btnCmdTurnRight = findViewById(R.id.btnCmdTurnRight);
@@ -388,7 +387,7 @@ public class MainActivity extends AppCompatActivity {
         mapView.invalidate();
     }
 
-    // Hàm tạo và gắn cờ mốc tác chiến lên bản đồ
+    // Gắn cờ mốc tác chiến lên bản đồ
     private void addTacticalFlagMarker(GeoPoint point, int flagColor, String typeTag) {
         Marker flag = new Marker(mapView);
         flag.setAnchor(0.22f, 0.91f);
@@ -522,7 +521,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupCommandButtons() {
-        // Cụm 7 lệnh chiến thuật cơ bản
         btnCmdStop.setOnClickListener(v -> sendTacticalCommand("0x01", "DỪNG XE"));
         btnCmdResume.setOnClickListener(v -> sendTacticalCommand("0x02", "TIẾP TỤC HÀNH QUÂN"));
         btnCmdSpeedUp.setOnClickListener(v -> sendTacticalCommand("0x03", "TĂNG TỐC"));
@@ -531,16 +529,10 @@ public class MainActivity extends AppCompatActivity {
         btnCmdOpenSpacing.setOnClickListener(v -> sendTacticalCommand("0x06", "DÃN CỰ LY"));
         btnCmdEmergency.setOnClickListener(v -> sendTacticalCommand("0x99", "TÌNH HUỐNG KHẨN CẤP"));
 
-        // Cụm 3 lệnh điều hướng bổ sung (có kiểm tra an toàn chống NullPointer)
-        if (btnCmdTurnLeft != null) {
-            btnCmdTurnLeft.setOnClickListener(v -> sendTacticalCommand("0x08", "RẼ TRÁI"));
-        }
-        if (btnCmdGoStraight != null) {
-            btnCmdGoStraight.setOnClickListener(v -> sendTacticalCommand("0x0A", "ĐI THẲNG"));
-        }
-        if (btnCmdTurnRight != null) {
-            btnCmdTurnRight.setOnClickListener(v -> sendTacticalCommand("0x09", "RẼ PHẢI"));
-        }
+        // 3 lệnh điều hướng văn bản thuần
+        btnCmdTurnLeft.setOnClickListener(v -> sendTacticalCommand("0x08", "RẼ TRÁI"));
+        btnCmdGoStraight.setOnClickListener(v -> sendTacticalCommand("0x0A", "ĐI THẲNG"));
+        btnCmdTurnRight.setOnClickListener(v -> sendTacticalCommand("0x09", "RẼ PHẢI"));
     }
 
     private void sendTacticalCommand(String cmdCode, String cmdDescription) {
@@ -570,7 +562,7 @@ public class MainActivity extends AppCompatActivity {
 
         runOnUiThread(() -> {
             new AlertDialog.Builder(this)
-                    .setTitle("🚨 MỆNH LỆNH TỪ " + senderName)
+                    .setTitle("MỆNH LỆNH TỪ " + senderName)
                     .setMessage("\n" + commandText + "\n\n(Tài xế/Trưởng xe lập tức chấp hành!)")
                     .setCancelable(false)
                     .setPositiveButton("ĐÃ NHẬN LỆNH", (dialog, which) -> {
@@ -643,7 +635,6 @@ public class MainActivity extends AppCompatActivity {
         trackLine.getActualPoints().clear();
         trackLine.setVisible(true);
 
-        // Dọn cờ kết thúc cũ và cờ mốc cũ trước khi ghi mới
         if (finishFlagMarker != null) {
             finishFlagMarker.setEnabled(false);
             mapView.getOverlays().remove(finishFlagMarker);
@@ -822,7 +813,6 @@ public class MainActivity extends AppCompatActivity {
                 trackLine.getActualPoints().clear();
                 trackLine.setVisible(false);
 
-                // Dọn sạch các cờ cũ trước khi tải lộ trình mới
                 if (finishFlagMarker != null) {
                     finishFlagMarker.setEnabled(false);
                     mapView.getOverlays().remove(finishFlagMarker);
@@ -841,7 +831,6 @@ public class MainActivity extends AppCompatActivity {
                 GeoPoint parsedStartPoint = null;
                 GeoPoint parsedFinishPoint = null;
 
-                // Cắm lại đầy đủ các màu cờ dựa theo dữ liệu waypoint
                 for (ParsedWaypoint wpt : gpxWaypoints) {
                     String nameUpper = wpt.name.toUpperCase();
                     String typeUpper = wpt.type.toUpperCase();
@@ -861,7 +850,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
 
-                // Dự phòng nếu file GPX không có thẻ <wpt> riêng: Lấy điểm đầu và điểm cuối của đường track
                 if (!points.isEmpty()) {
                     if (parsedStartPoint == null) {
                         plantStartFlag(points.get(0));
@@ -957,7 +945,7 @@ public class MainActivity extends AppCompatActivity {
             writer.write("  <trk>\n    <name>Track " + timeStamp + "</name>\n    <trkseg>\n");
             SimpleDateFormat isoFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
 
-            cursor.moveToPosition(-1); // Đưa con trỏ về trước điểm đầu tiên để ghi đủ toàn bộ các điểm
+            cursor.moveToPosition(-1);
             while (cursor.moveToNext()) {
                 double lat = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LAT));
                 double lng = cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_LNG));
@@ -1101,7 +1089,6 @@ public class MainActivity extends AppCompatActivity {
                 }
                 trackLine.addPoint(pt);
             }
-            // Khôi phục lại cờ xanh nếu bị mất khi ứng dụng vào chạy nền
             if (startFlagMarker == null && firstPoint != null) {
                 plantStartFlag(firstPoint);
             }
